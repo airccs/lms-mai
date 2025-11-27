@@ -371,14 +371,13 @@
                         syncAction: 'submitAnswer'
                     });
 
-                        if (response && response.success && response.data) {
-                            // Обновляем статистику с сервера
-                            const serverStats = response.data.statistics;
-                            if (serverStats) {
-                                this.statistics.set(questionHash, serverStats);
-                            }
-                            console.log('Statistics synced with server');
+                    if (response && response.success && response.data) {
+                        // Обновляем статистику с сервера
+                        const serverStats = response.data.statistics;
+                        if (serverStats) {
+                            this.statistics.set(questionHash, serverStats);
                         }
+                        console.log('Statistics synced with server');
                     }
                 } catch (serverError) {
                     console.warn('Failed to sync with server, using local only:', serverError);

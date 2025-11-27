@@ -26,27 +26,44 @@
 4. Нажмите "Загрузить распакованное расширение"
 5. Выберите папку с расширением
 
-## Установка сервера
+## API Сервер
 
-### Вариант 1: Railway (рекомендуется)
+### ✅ Готовый сервер (уже развернут)
+
+**API URL:** `https://lms-mai-api.iljakir-06.workers.dev`
+
+Сервер уже развернут на Cloudflare Workers с постоянным хранением данных (KV).
+
+**Быстрая настройка:**
+1. Откройте popup расширения
+2. Включите "Синхронизацию с сервером"
+3. Введите URL: `https://lms-mai-api.iljakir-06.workers.dev`
+4. Сохраните настройки
+
+Подробнее: [FINAL_SETUP.md](FINAL_SETUP.md)
+
+### Развертывание собственного сервера
+
+#### Вариант 1: Cloudflare Workers (рекомендуется)
+
+1. Установите Wrangler CLI: `npm install -g wrangler`
+2. Авторизуйтесь: `wrangler login`
+3. Создайте KV namespace: `wrangler kv namespace create "QUIZ_DATA"`
+4. Обновите `wrangler.toml` с ID namespace
+5. Разверните: `wrangler deploy`
+
+Подробнее: [CLOUDFLARE_QUICK_START.md](CLOUDFLARE_QUICK_START.md), [SETUP_KV.md](SETUP_KV.md)
+
+#### Вариант 2: Railway
 
 1. Зарегистрируйтесь на https://railway.app/
 2. Создайте новый проект
 3. Подключите этот репозиторий
 4. Railway автоматически развернет сервер
-5. Получите постоянный URL
 
-Подробнее: [server/railway-setup.md](server/railway-setup.md)
+Подробнее: [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md), [server/railway-setup.md](server/railway-setup.md)
 
-### Вариант 2: Cloudflare Tunnel
-
-1. Установите cloudflared
-2. Создайте туннель
-3. Настройте маршрут
-
-Подробнее: [server/cloudflare-tunnel-setup.md](server/cloudflare-tunnel-setup.md)
-
-### Вариант 3: Локальный запуск
+#### Вариант 3: Локальный запуск
 
 ```bash
 cd server
@@ -66,7 +83,16 @@ npm start
 
 ## Настройка синхронизации
 
-1. Разверните сервер (Railway, Cloudflare или локально)
+### Использование готового сервера (рекомендуется)
+
+1. Откройте popup расширения
+2. Включите "Синхронизацию с сервером"
+3. Введите URL: `https://lms-mai-api.iljakir-06.workers.dev`
+4. Сохраните настройки
+
+### Развертывание собственного сервера
+
+1. Разверните сервер (Cloudflare Workers, Railway или локально)
 2. Откройте popup расширения
 3. Включите "Синхронизацию с сервером"
 4. Введите URL вашего сервера
@@ -89,8 +115,12 @@ lms/
 
 ## Документация
 
+- [FINAL_SETUP.md](FINAL_SETUP.md) - ✅ Финальная настройка (начните отсюда!)
 - [SYNC_EXPLANATION.md](SYNC_EXPLANATION.md) - Как работает синхронизация
 - [USAGE.md](USAGE.md) - Инструкция по использованию
+- [CLOUDFLARE_QUICK_START.md](CLOUDFLARE_QUICK_START.md) - Быстрый старт Cloudflare Workers
+- [SETUP_KV.md](SETUP_KV.md) - Настройка постоянного хранения (KV)
+- [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md) - Развертывание на Railway
 - [server/README.md](server/README.md) - Документация сервера
 - [server/railway-setup.md](server/railway-setup.md) - Развертывание на Railway
 - [server/cloudflare-tunnel-setup.md](server/cloudflare-tunnel-setup.md) - Настройка Cloudflare Tunnel

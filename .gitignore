@@ -38,6 +38,8 @@ logs/
 # Cloudflare
 .cloudflared/
 cloudflared.exe
+.wrangler/
+wrangler.toml.local
 
 # Temporary files
 *.tmp

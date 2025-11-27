@@ -1,0 +1,15 @@
+name = "lms-mai-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# KV Namespace для хранения данных
+# Создайте через: wrangler kv:namespace create "QUIZ_DATA"
+# Затем добавьте ID сюда
+[[kv_namespaces]]
+binding = "QUIZ_DATA"
+id = "YOUR_KV_NAMESPACE_ID"  # Замените на реальный ID после создания
+
+# Переменные окружения (опционально)
+[vars]
+ENVIRONMENT = "production"
+

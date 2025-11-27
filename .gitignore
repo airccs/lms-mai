@@ -41,6 +41,9 @@ cloudflared.exe
 .wrangler/
 wrangler.toml.local
 
+# Local configuration (use .example files as templates)
+wrangler.toml
+
 # Temporary files
 *.tmp
 *.temp

@@ -1,4 +1,4 @@
-name = "lms-mai-api"
+name = "lms-mai"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 

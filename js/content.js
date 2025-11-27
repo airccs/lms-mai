@@ -900,7 +900,7 @@
                                 totalAttempts: (localStats.totalAttempts || 0) + (serverStats.totalAttempts || 0),
                                 correctAttempts: (localStats.correctAttempts || 0) + (serverStats.correctAttempts || 0),
                                 answers: this.mergeAnswers(localStats.answers || {}, serverStats.answers || {}),
-                                errors: this.mergeErrors(localErrors || [], serverStats.errors || [])
+                                errors: this.mergeErrors(localStats.errors || [], serverStats.errors || [])
                             };
                             this.statistics.set(question.hash, merged);
                             question.statistics = merged;

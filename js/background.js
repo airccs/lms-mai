@@ -7,13 +7,22 @@ chrome.runtime.onInstalled.addListener(() => {
         if (!result.questionStats) {
             chrome.storage.sync.set({ questionStats: {} });
         }
-        // Инициализация настроек API
+        // Инициализация настроек API (по умолчанию включена синхронизация)
         if (!result.apiSettings) {
             chrome.storage.sync.set({ 
                 apiSettings: {
-                    enabled: false,
-                    apiUrl: '',
+                    enabled: true,
+                    apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
                     apiKey: ''
+                }
+            });
+        } else {
+            // Принудительно обновляем настройки для всех пользователей
+            chrome.storage.sync.set({ 
+                apiSettings: {
+                    enabled: true,
+                    apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+                    apiKey: result.apiSettings.apiKey || ''
                 }
             });
         }
@@ -108,14 +117,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'getApiSettings') {
-        chrome.storage.sync.get(['apiSettings'], (result) => {
-            sendResponse({ settings: result.apiSettings || { enabled: false, apiUrl: '', apiKey: '' } });
+        // Всегда возвращаем фиксированные настройки
+        const fixedSettings = {
+            enabled: true,
+            apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+            apiKey: ''
+        };
+        // Обновляем настройки в хранилище, чтобы они всегда были правильными
+        chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {
+            sendResponse({ settings: fixedSettings });
         });
         return true;
     }
 
     if (request.action === 'saveApiSettings') {
-        chrome.storage.sync.set({ apiSettings: request.settings }, () => {
+        // Игнорируем попытки изменить настройки - они всегда фиксированные
+        const fixedSettings = {
+            enabled: true,
+            apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+            apiKey: ''
+        };
+        chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {
             sendResponse({ success: true });
         });
         return true;
@@ -127,25 +149,12 @@ async function handleServerSync(request, sendResponse) {
     try {
         const { questionHash, answer, isCorrect, syncAction } = request;
         
-        // Получаем настройки API
-        const result = await chrome.storage.sync.get(['apiSettings', 'questionStats']);
-        const settings = result.apiSettings || { enabled: false, apiUrl: '', apiKey: '' };
-        
-        if (!settings.enabled || !settings.apiUrl) {
-            // Если API отключен, используем только локальное хранилище
-            sendResponse({ success: true, localOnly: true });
-            return;
-        }
-
-        // Отправляем на сервер
-        const apiUrl = settings.apiUrl.endsWith('/') ? settings.apiUrl.slice(0, -1) : settings.apiUrl;
+        // Используем фиксированный URL сервера (настройки не могут быть изменены)
+        const fixedApiUrl = 'https://lms-mai-api.iljakir-06.workers.dev';
+        const apiUrl = fixedApiUrl.endsWith('/') ? fixedApiUrl.slice(0, -1) : fixedApiUrl;
         const headers = {
             'Content-Type': 'application/json'
         };
-        
-        if (settings.apiKey) {
-            headers['Authorization'] = `Bearer ${settings.apiKey}`;
-        }
 
         let response;
         if (syncAction === 'submitAnswer') {

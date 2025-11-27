@@ -43,59 +43,27 @@ async function loadApiSettings() {
         const response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
         if (response && response.settings) {
             const settings = response.settings;
-            document.getElementById('api-enabled').checked = settings.enabled || false;
-            document.getElementById('api-url').value = settings.apiUrl || '';
-            document.getElementById('api-key').value = settings.apiKey || '';
+            const apiUrlDisplay = document.getElementById('api-url-display');
             
-            // Показываем поля, если API включен
-            document.getElementById('api-fields').style.display = settings.enabled ? 'block' : 'none';
+            // Отображаем URL сервера
+            if (apiUrlDisplay) {
+                apiUrlDisplay.textContent = settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';
+            }
             
             // Проверяем соединение
-            if (settings.enabled && settings.apiUrl) {
-                checkApiConnection(settings.apiUrl);
-            }
+            const apiUrl = settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';
+            checkApiConnection(apiUrl);
         }
     } catch (e) {
         console.error('Error loading API settings:', e);
+        // Проверяем соединение с дефолтным URL
+        checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
     }
 }
 
 function setupApiSettings() {
-    const apiEnabled = document.getElementById('api-enabled');
-    const apiFields = document.getElementById('api-fields');
-    const saveBtn = document.getElementById('save-api-settings');
-
-    apiEnabled.addEventListener('change', () => {
-        apiFields.style.display = apiEnabled.checked ? 'block' : 'none';
-    });
-
-    saveBtn.addEventListener('click', async () => {
-        const settings = {
-            enabled: apiEnabled.checked,
-            apiUrl: document.getElementById('api-url').value.trim(),
-            apiKey: document.getElementById('api-key').value.trim()
-        };
-
-        try {
-            const response = await chrome.runtime.sendMessage({
-                action: 'saveApiSettings',
-                settings: settings
-            });
-
-            if (response && response.success) {
-                document.getElementById('api-status').textContent = '✅ Настройки сохранены!';
-                document.getElementById('api-status').style.color = '#4CAF50';
-                
-                if (settings.enabled && settings.apiUrl) {
-                    checkApiConnection(settings.apiUrl);
-                }
-            }
-        } catch (e) {
-            console.error('Error saving API settings:', e);
-            document.getElementById('api-status').textContent = '❌ Ошибка при сохранении';
-            document.getElementById('api-status').style.color = '#f44336';
-        }
-    });
+    // Настройки API теперь фиксированные и не могут быть изменены пользователем
+    // Функция оставлена для совместимости, но не выполняет никаких действий
 }
 
 async function checkApiConnection(apiUrl) {

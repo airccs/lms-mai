@@ -81,14 +81,12 @@
             <div class="section">
                 <h2>🌐 Синхронизация между пользователями:</h2>
                 <div id="api-settings">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="api-enabled">
-                        <span>Включить синхронизацию с сервером</span>
-                    </label>
-                    <div id="api-fields" style="display: none; margin-top: 10px;">
-                        <input type="text" id="api-url" placeholder="URL API сервера (например: https://api.example.com)" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px;">
-                        <input type="text" id="api-key" placeholder="API ключ (опционально)" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px;">
-                        <button id="save-api-settings" style="width: 100%; padding: 10px; margin-top: 10px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">Сохранить настройки</button>
+                    <div style="margin-bottom: 10px;">
+                        <span style="color: #4CAF50; font-weight: bold;">✅ Синхронизация включена</span>
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Сервер:</div>
+                        <div style="font-size: 11px; color: #333; word-break: break-all;" id="api-url-display">https://lms-mai-api.iljakir-06.workers.dev</div>
                         <div id="api-status" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
                     </div>
                 </div>

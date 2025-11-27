@@ -269,11 +269,9 @@
                     console.log(`Loaded ${this.statistics.size} questions from local storage`);
                 }
 
-                // Затем пытаемся загрузить с сервера, если API включен
-                const settings = result.apiSettings || { enabled: false, apiUrl: '', apiKey: '' };
-                if (settings.enabled && settings.apiUrl) {
-                    await this.loadStatisticsFromServer(settings);
-                }
+                // Всегда загружаем статистику с сервера (синхронизация всегда включена)
+                const settings = { enabled: true, apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev', apiKey: '' };
+                await this.loadStatisticsFromServer(settings);
             } catch (e) {
                 console.error('Error loading statistics:', e);
             }
@@ -363,19 +361,15 @@
                 }
                 await chrome.storage.sync.set({ questionStats: allStats });
 
-                // Отправляем на сервер для синхронизации между пользователями
+                // Отправляем на сервер для синхронизации между пользователями (всегда включено)
                 try {
-                    const settings = await chrome.storage.sync.get(['apiSettings']);
-                    const apiSettings = settings.apiSettings || { enabled: false, apiUrl: '', apiKey: '' };
-                    
-                    if (apiSettings.enabled && apiSettings.apiUrl) {
-                        const response = await chrome.runtime.sendMessage({
-                            action: 'syncWithServer',
-                            questionHash: questionHash,
-                            answer: answer,
-                            isCorrect: isCorrect,
-                            syncAction: 'submitAnswer'
-                        });
+                    const response = await chrome.runtime.sendMessage({
+                        action: 'syncWithServer',
+                        questionHash: questionHash,
+                        answer: answer,
+                        isCorrect: isCorrect,
+                        syncAction: 'submitAnswer'
+                    });
 
                         if (response && response.success && response.data) {
                             // Обновляем статистику с сервера
@@ -888,35 +882,31 @@
 
         async loadQuestionStatisticsFromServer(question) {
             try {
-                const settings = await chrome.storage.sync.get(['apiSettings']);
-                const apiSettings = settings.apiSettings || { enabled: false, apiUrl: '', apiKey: '' };
-                
-                if (apiSettings.enabled && apiSettings.apiUrl) {
-                    const response = await chrome.runtime.sendMessage({
-                        action: 'syncWithServer',
-                        questionHash: question.hash,
-                        syncAction: 'getStatistics'
-                    });
+                // Всегда загружаем статистику с сервера (синхронизация всегда включена)
+                const response = await chrome.runtime.sendMessage({
+                    action: 'syncWithServer',
+                    questionHash: question.hash,
+                    syncAction: 'getStatistics'
+                });
 
-                    if (response && response.success && response.data) {
-                        const serverStats = response.data.statistics;
-                        if (serverStats) {
-                            // Объединяем с локальной статистикой
-                            const localStats = this.statistics.get(question.hash);
-                            if (localStats) {
-                                // Улучшенное объединение: суммируем попытки и объединяем ответы
-                                const merged = {
-                                    totalAttempts: (localStats.totalAttempts || 0) + (serverStats.totalAttempts || 0),
-                                    correctAttempts: (localStats.correctAttempts || 0) + (serverStats.correctAttempts || 0),
-                                    answers: this.mergeAnswers(localStats.answers || {}, serverStats.answers || {}),
-                                    errors: this.mergeErrors(localStats.errors || [], serverStats.errors || [])
-                                };
-                                this.statistics.set(question.hash, merged);
-                                question.statistics = merged;
-                            } else {
-                                this.statistics.set(question.hash, serverStats);
-                                question.statistics = serverStats;
-                            }
+                if (response && response.success && response.data && response.data.statistics) {
+                    const serverStats = response.data.statistics;
+                    if (serverStats) {
+                        // Объединяем с локальной статистикой
+                        const localStats = this.statistics.get(question.hash);
+                        if (localStats) {
+                            // Улучшенное объединение: суммируем попытки и объединяем ответы
+                            const merged = {
+                                totalAttempts: (localStats.totalAttempts || 0) + (serverStats.totalAttempts || 0),
+                                correctAttempts: (localStats.correctAttempts || 0) + (serverStats.correctAttempts || 0),
+                                answers: this.mergeAnswers(localStats.answers || {}, serverStats.answers || {}),
+                                errors: this.mergeErrors(localErrors || [], serverStats.errors || [])
+                            };
+                            this.statistics.set(question.hash, merged);
+                            question.statistics = merged;
+                        } else {
+                            this.statistics.set(question.hash, serverStats);
+                            question.statistics = serverStats;
                         }
                     }
                 }

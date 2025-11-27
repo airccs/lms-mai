@@ -1,4 +1,4 @@
-# Moodle Quiz Solver
+# LMS MAI Quiz Solver
 
 Полноценное расширение для браузера, которое помогает решать тесты в Moodle LMS на сайте https://lms.mai.ru/
 

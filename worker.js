@@ -212,6 +212,29 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Корневой путь - информация об API
+    if (path === '/' || path === '') {
+      return new Response(
+        JSON.stringify({
+          status: 'ok',
+          message: 'LMS MAI Quiz Solver API',
+          version: '1.0.0',
+          endpoints: {
+            health: 'GET /api/health',
+            stats: 'GET /api/stats',
+            questionStats: 'GET /api/stats/:questionHash',
+            submit: 'POST /api/submit',
+            save: 'POST /api/save',
+            answers: 'GET /api/answers/:questionHash',
+            serverStats: 'GET /api/server/stats'
+          }
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     // Маршрутизация
     if (path === '/api/health') {
       return handleHealth();
@@ -245,7 +268,21 @@ export default {
 
     // 404 для неизвестных маршрутов
     return new Response(
-      JSON.stringify({ error: 'Not found' }),
+      JSON.stringify({
+        error: 'Not found',
+        path: path,
+        method: request.method,
+        availableEndpoints: [
+          'GET /',
+          'GET /api/health',
+          'GET /api/stats',
+          'GET /api/stats/:questionHash',
+          'POST /api/submit',
+          'POST /api/save',
+          'GET /api/answers/:questionHash',
+          'GET /api/server/stats'
+        ]
+      }),
       {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

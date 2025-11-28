@@ -62,9 +62,8 @@ function setupApiSettings() {
 
 async function checkApiConnection(apiUrl) {
     const statusEl = document.getElementById('api-status');
-    statusEl.textContent = '⏳ Проверка соединения...';
-    statusEl.style.color = '#718096';
-    statusEl.style.background = 'rgba(255, 255, 255, 0.7)';
+    statusEl.innerHTML = '<span class="sync-icon">⏳</span><span>Проверка соединения...</span>';
+    statusEl.className = 'sync-item';
 
     try {
         const response = await fetch(`${apiUrl}/api/health`, {
@@ -73,17 +72,16 @@ async function checkApiConnection(apiUrl) {
         });
 
         if (response.ok) {
-            statusEl.textContent = '✅ Соединение установлено';
-            statusEl.style.color = '#22c55e';
-            statusEl.style.background = 'rgba(34, 197, 94, 0.1)';
+            statusEl.innerHTML = '<span class="sync-icon">✅</span><span>Соединение установлено</span>';
+            statusEl.className = 'sync-item';
         } else {
-            statusEl.textContent = '⚠️ Сервер недоступен';
-            statusEl.style.color = '#f59e0b';
-            statusEl.style.background = 'rgba(245, 158, 11, 0.1)';
+            statusEl.innerHTML = '<span class="sync-icon">⚠️</span><span>Сервер недоступен</span>';
+            statusEl.className = 'sync-item';
+            statusEl.style.color = '#92400e';
         }
     } catch (e) {
-        statusEl.textContent = '❌ Не удалось подключиться к серверу';
-        statusEl.style.color = '#ef4444';
-        statusEl.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusEl.innerHTML = '<span class="sync-icon">❌</span><span>Не удалось подключиться к серверу</span>';
+        statusEl.className = 'sync-item';
+        statusEl.style.color = '#991b1b';
     }
 }

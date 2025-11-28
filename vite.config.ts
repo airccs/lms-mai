@@ -32,11 +32,7 @@ export default defineConfig({
     outDir: 'html',
     base: './',
     sourcemap: true,
-    minify: 'terser',
-    terserOptions: {
-      keep_classnames: true,
-      keep_fnames: true,
-    },
+    minify: 'esbuild',
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/index.html'),

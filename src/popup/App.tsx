@@ -29,32 +29,43 @@ const App: React.FC = () => {
     loadApiSettings();
   }, []);
 
-  async function loadStatistics() {
+  const loadStatistics = async function loadStatistics() {
     try {
-      if (!chrome?.storage) {
+      // Проверяем доступность Chrome API
+      if (typeof chrome === 'undefined' || !chrome.storage) {
         console.warn('Chrome storage API not available');
+        setStats({ saved: 0, total: 0, attempts: 0 });
         return;
       }
 
       // Загружаем сохраненные ответы
       const localData = await chrome.storage.local.get(null);
       let savedCount = 0;
-      for (const key of Object.keys(localData)) {
-        if (key.startsWith('answer_')) {
-          savedCount++;
+      if (localData && typeof localData === 'object') {
+        for (const key of Object.keys(localData)) {
+          if (key && key.startsWith('answer_')) {
+            savedCount++;
+          }
         }
       }
 
       // Загружаем статистику из sync storage
       const syncData = await chrome.storage.sync.get(['questionStats']);
-      const questionStats = syncData.questionStats || {};
-      const questionCount = Object.keys(questionStats).length;
+      const questionStats = (syncData && syncData.questionStats) ? syncData.questionStats : {};
+      const questionCount = typeof questionStats === 'object' && questionStats !== null 
+        ? Object.keys(questionStats).length 
+        : 0;
 
       // Подсчитываем общее количество попыток
       let totalAttempts = 0;
-      for (const stats of Object.values(questionStats)) {
-        if (typeof stats === 'object' && stats !== null && 'totalAttempts' in stats) {
-          totalAttempts += (stats as any).totalAttempts || 0;
+      if (typeof questionStats === 'object' && questionStats !== null) {
+        for (const stats of Object.values(questionStats)) {
+          if (typeof stats === 'object' && stats !== null && 'totalAttempts' in stats) {
+            const attempts = (stats as any).totalAttempts;
+            if (typeof attempts === 'number' && !isNaN(attempts)) {
+              totalAttempts += attempts;
+            }
+          }
         }
       }
 
@@ -72,11 +83,12 @@ const App: React.FC = () => {
         attempts: 0
       });
     }
-  }
+  };
 
-  async function loadApiSettings() {
+  const loadApiSettings = async function loadApiSettings() {
     try {
-      if (!chrome?.runtime) {
+      // Проверяем доступность Chrome API
+      if (typeof chrome === 'undefined' || !chrome.runtime) {
         console.warn('Chrome runtime API not available');
         setSyncStatus('⚠️ API недоступен');
         return;
@@ -86,14 +98,16 @@ const App: React.FC = () => {
       if (response && response.settings) {
         const apiUrl = response.settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';
         checkApiConnection(apiUrl);
+      } else {
+        checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
       }
     } catch (e) {
       console.error('Error loading API settings:', e);
       checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
     }
-  }
+  };
 
-  async function checkApiConnection(apiUrl: string) {
+  const checkApiConnection = async function checkApiConnection(apiUrl: string) {
     setSyncStatus('⏳ Проверка соединения...');
     try {
       const response = await fetch(`${apiUrl}/api/health`, {

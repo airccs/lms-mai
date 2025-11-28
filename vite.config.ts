@@ -20,6 +20,12 @@ export default defineConfig({
           }
         }
       },
+      transformIndexHtml(html) {
+        // Заменяем абсолютные пути на относительные
+        return html
+          .replace(/src="\/js\//g, 'src="./js/')
+          .replace(/href="\/css\//g, 'href="./css/');
+      },
     },
   ],
   build: {

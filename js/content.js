@@ -31,21 +31,45 @@
 
         isReviewPage() {
             // Проверяем наличие элементов, характерных для страницы результатов
-            return document.querySelector('#page-mod-quiz-review') !== null ||
+            const hasReviewElements = document.querySelector('#page-mod-quiz-review') !== null ||
                    document.querySelector('.quizreviewsummary') !== null ||
-                   window.location.href.includes('review') ||
-                   document.querySelector('.que.correct') !== null ||
-                   document.querySelector('.que.incorrect') !== null;
+                   document.querySelector('.quiz-summary') !== null ||
+                   document.querySelector('.quizresults') !== null;
+            
+            const hasReviewUrl = window.location.href.includes('review') ||
+                   window.location.href.includes('summary') ||
+                   window.location.href.includes('result');
+            
+            const hasCorrectnessIndicators = document.querySelector('.que.correct') !== null ||
+                   document.querySelector('.que.incorrect') !== null ||
+                   document.querySelector('.que.partiallycorrect') !== null ||
+                   document.querySelector('.rightanswer') !== null ||
+                   document.querySelector('.wronganswer') !== null ||
+                   document.querySelector('.correctanswer') !== null;
+            
+            // Проверяем наличие текста "Результаты" или "Results"
+            const hasResultsText = document.body.innerText.includes('Результаты теста') ||
+                   document.body.innerText.includes('Результат') ||
+                   document.body.innerText.includes('Правильных ответов') ||
+                   document.body.innerText.includes('Правильно:') ||
+                   document.body.innerText.includes('Неправильно:');
+            
+            return hasReviewElements || hasReviewUrl || hasCorrectnessIndicators || hasResultsText;
         }
 
         async processReviewPage() {
-            console.log('Processing review page - analyzing results');
+            console.log('[Review Scanner] Начинаю сканирование страницы результатов...');
             const questionElements = document.querySelectorAll('.que');
             
             let totalQuestions = 0;
             let correctAnswers = 0;
             let incorrectAnswers = 0;
+            let updatedCount = 0;
             const results = [];
+
+            // Сначала обновляем все существующие сохраненные ответы
+            console.log('[Review Scanner] Обновляю существующие сохраненные ответы...');
+            await this.updateAllSavedAnswersFromReview(questionElements);
 
             for (const element of questionElements) {
                 try {
@@ -64,7 +88,8 @@
 
                     if (userAnswer && isCorrect !== null) {
                         // Сохраняем ответ с правильным isCorrect и текстом вопроса
-                        await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
+                        const wasUpdated = await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
+                        if (wasUpdated) updatedCount++;
                         await this.updateStatistics(question.hash, userAnswer, isCorrect);
                         
                         results.push({
@@ -82,7 +107,104 @@
             // Показываем статистику выполнения
             this.showQuizResults(totalQuestions, correctAnswers, incorrectAnswers, results);
             
-            this.showNotification('📊 Статистика обновлена на основе результатов теста!', 'success');
+            // Добавляем кнопку для повторного сканирования
+            this.addRescanButton();
+            
+            this.showNotification(`📊 Сканирование завершено! Обновлено ответов: ${updatedCount}`, 'success');
+        }
+
+        async updateAllSavedAnswersFromReview(questionElements) {
+            // Обновляем все сохраненные ответы на основе текущей страницы результатов
+            try {
+                const allSaved = await chrome.storage.local.get(null);
+                let updatedCount = 0;
+
+                for (const element of questionElements) {
+                    try {
+                        const question = this.parseQuestion(element, 0);
+                        if (!question) continue;
+
+                        const savedKey = `answer_${question.hash}`;
+                        const savedData = allSaved[savedKey];
+                        
+                        if (savedData) {
+                            // Определяем правильность на основе страницы результатов
+                            const isCorrect = this.determineCorrectnessFromReview(element);
+                            const userAnswer = this.extractUserAnswerFromReview(element, question);
+                            
+                            if (isCorrect !== null && userAnswer) {
+                                // Обновляем только если статус изменился или был неизвестен
+                                if (savedData.isCorrect !== isCorrect || savedData.isCorrect === null) {
+                                    await this.saveAnswer(
+                                        question.hash, 
+                                        userAnswer || savedData.answer, 
+                                        isCorrect, 
+                                        question.text || savedData.questionText
+                                    );
+                                    updatedCount++;
+                                    console.log(`[Review Scanner] Обновлен ответ для hash: ${question.hash}, isCorrect: ${isCorrect}`);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error updating saved answer:', e);
+                    }
+                }
+
+                if (updatedCount > 0) {
+                    console.log(`[Review Scanner] Обновлено ${updatedCount} сохраненных ответов`);
+                }
+            } catch (e) {
+                console.error('Error updating all saved answers:', e);
+            }
+        }
+
+        addRescanButton() {
+            // Удаляем предыдущую кнопку, если есть
+            const existing = document.getElementById('quiz-solver-rescan-btn');
+            if (existing) existing.remove();
+
+            // Добавляем кнопку повторного сканирования
+            const rescanBtn = document.createElement('button');
+            rescanBtn.id = 'quiz-solver-rescan-btn';
+            rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+            rescanBtn.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                padding: 12px 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: bold;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                z-index: 100002;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                transition: all 0.3s ease;
+            `;
+
+            rescanBtn.addEventListener('mouseenter', () => {
+                rescanBtn.style.transform = 'translateY(-2px)';
+                rescanBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
+            });
+
+            rescanBtn.addEventListener('mouseleave', () => {
+                rescanBtn.style.transform = 'translateY(0)';
+                rescanBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+            });
+
+            rescanBtn.addEventListener('click', async () => {
+                rescanBtn.disabled = true;
+                rescanBtn.innerHTML = '⏳ Сканирование...';
+                await this.processReviewPage();
+                rescanBtn.disabled = false;
+                rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+            });
+
+            document.body.appendChild(rescanBtn);
         }
 
         showQuizResults(total, correct, incorrect, results) {
@@ -211,24 +333,73 @@
 
         extractUserAnswerFromReview(element, question) {
             if (question.type === 'multichoice' || question.type === 'truefalse') {
-                // Ищем выбранный ответ в review
+                // Способ 1: Ищем выбранный ответ в review
                 const selected = element.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
                 if (selected) {
                     const label = element.querySelector(`label[for="${selected.id}"]`) || 
                                  selected.closest('label') ||
                                  selected.parentElement;
                     if (label) {
-                        const text = label.innerText.replace(selected.value, '').trim();
+                        // Очищаем текст от лишних символов
+                        let text = label.innerText || label.textContent;
+                        text = text.replace(selected.value, '').trim();
+                        // Убираем маркеры правильности (✓, ✗ и т.д.)
+                        text = text.replace(/[✓✗✔✘]/g, '').trim();
                         return {
                             value: selected.value,
                             text: text
                         };
                     }
                 }
+
+                // Способ 2: Ищем в тексте ответа, который выделен как правильный/неправильный
+                const answerLabels = element.querySelectorAll('label, .answer, .option');
+                for (const label of answerLabels) {
+                    const isSelected = label.querySelector('input:checked') !== null ||
+                                     label.classList.contains('selected') ||
+                                     label.classList.contains('answered');
+                    
+                    if (isSelected || label.classList.contains('correct') || label.classList.contains('incorrect')) {
+                        const input = label.querySelector('input[type="radio"], input[type="checkbox"]');
+                        if (input) {
+                            let text = label.innerText || label.textContent;
+                            text = text.replace(input.value, '').trim();
+                            text = text.replace(/[✓✗✔✘]/g, '').trim();
+                            return {
+                                value: input.value,
+                                text: text
+                            };
+                        }
+                    }
+                }
+
+                // Способ 3: Ищем в тексте "Ваш ответ:" или "Your answer:"
+                const answerText = element.innerText || element.textContent;
+                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ):\s*([a-z]\.?\s*[^\n]+)/i);
+                if (answerMatch) {
+                    const answerStr = answerMatch[1].trim();
+                    // Пытаемся найти соответствующий вариант
+                    for (const answer of question.answers || []) {
+                        if (answer.text && answerStr.includes(answer.text.substring(0, 20))) {
+                            return {
+                                value: answer.value,
+                                text: answer.text
+                            };
+                        }
+                    }
+                }
             } else if (question.type === 'shortanswer' || question.type === 'numerical') {
+                // Ищем в input или в тексте
                 const input = element.querySelector('input[type="text"], input[type="number"]');
                 if (input && input.value) {
                     return input.value;
+                }
+                
+                // Ищем в тексте "Ваш ответ:"
+                const answerText = element.innerText || element.textContent;
+                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ):\s*([^\n]+)/i);
+                if (answerMatch) {
+                    return answerMatch[1].trim();
                 }
             }
             return null;
@@ -317,19 +488,46 @@
 
         async saveAnswer(questionHash, answer, isCorrect = null, questionText = null) {
             try {
-                const answerData = {
-                    answer: answer,
-                    timestamp: Date.now(),
-                    isCorrect: isCorrect,
-                    questionText: questionText || null // Сохраняем текст вопроса
-                };
-                await chrome.storage.local.set({
-                    [`answer_${questionHash}`]: answerData
-                });
-                this.savedAnswers.set(questionHash, answerData);
-                console.log(`[Save] Сохранен ответ для вопроса (hash: ${questionHash})`);
+                // Проверяем, есть ли уже сохраненный ответ
+                const existingKey = `answer_${questionHash}`;
+                const existing = await chrome.storage.local.get([existingKey]);
+                const existingData = existing[existingKey];
+                
+                // Если ответ уже есть, обновляем только если новый статус более точный
+                let shouldUpdate = true;
+                if (existingData) {
+                    // Обновляем если:
+                    // 1. Старый статус был null, а новый известен
+                    // 2. Новый статус отличается от старого (исправляем ошибку)
+                    // 3. Есть текст вопроса, а раньше не было
+                    if (existingData.isCorrect !== null && isCorrect === null) {
+                        shouldUpdate = false; // Не перезаписываем известный статус на null
+                    } else if (existingData.isCorrect === isCorrect && 
+                               existingData.questionText && !questionText) {
+                        shouldUpdate = false; // Не теряем текст вопроса
+                    }
+                }
+
+                if (shouldUpdate) {
+                    const answerData = {
+                        answer: answer,
+                        timestamp: existingData?.timestamp || Date.now(), // Сохраняем оригинальную дату
+                        isCorrect: isCorrect !== null ? isCorrect : (existingData?.isCorrect || null),
+                        questionText: questionText || existingData?.questionText || null
+                    };
+                    
+                    await chrome.storage.local.set({
+                        [existingKey]: answerData
+                    });
+                    this.savedAnswers.set(questionHash, answerData);
+                    console.log(`[Save] ${existingData ? 'Обновлен' : 'Сохранен'} ответ для вопроса (hash: ${questionHash}, isCorrect: ${isCorrect})`);
+                    return true; // Возвращаем true если было обновление
+                }
+                
+                return false; // Не было обновления
             } catch (e) {
                 console.error('Error saving answer:', e);
+                return false;
             }
         }
 

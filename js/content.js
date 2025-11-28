@@ -340,13 +340,25 @@
                                  selected.closest('label') ||
                                  selected.parentElement;
                     if (label) {
-                        // Очищаем текст от лишних символов
-                        let text = label.innerText || label.textContent;
-                        text = text.replace(selected.value, '').trim();
+                        // Получаем полный текст ответа
+                        let text = label.innerText || label.textContent || '';
+                        
                         // Убираем маркеры правильности (✓, ✗ и т.д.)
                         text = text.replace(/[✓✗✔✘]/g, '').trim();
-                        // Убираем лишние пробелы
+                        
+                        // Убираем значение input.value только если оно в начале и совпадает с буквой варианта
+                        // Например, если value="c" и текст "c. 23.6", оставляем "c. 23.6"
+                        const valuePattern = new RegExp(`^${selected.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.?\\s*`, 'i');
+                        if (text.match(valuePattern)) {
+                            // Убираем только букву варианта в начале, сохраняя остальное
+                            text = text.replace(valuePattern, '').trim();
+                            // Добавляем букву обратно для полного формата
+                            text = `${selected.value}. ${text}`;
+                        }
+                        
+                        // Нормализуем пробелы
                         text = text.replace(/\s+/g, ' ').trim();
+                        
                         return {
                             value: selected.value,
                             text: text
@@ -356,16 +368,52 @@
 
                 // Способ 2: Ищем в тексте "Ваш ответ:" или "Your answer:" (более надежно)
                 const answerText = element.innerText || element.textContent;
-                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ|Выбранный ответ):\s*([a-z]\.?\s*[^\n]+)/i);
+                // Ищем более широкий паттерн, включая числа с десятичными знаками
+                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ|Выбранный ответ):\s*([a-z]\.?\s*[^\n]+?)(?:\n|$)/i);
                 if (answerMatch) {
-                    const answerStr = answerMatch[1].trim();
-                    // Извлекаем букву варианта и значение
+                    let answerStr = answerMatch[1].trim();
+                    
+                    // Извлекаем букву варианта и полное значение (включая числа)
+                    // Паттерн: буква, точка (опционально), пробелы, затем все остальное до конца строки
                     const variantMatch = answerStr.match(/^([a-e])\.?\s*(.+)$/i);
                     if (variantMatch) {
                         const variant = variantMatch[1].toLowerCase();
-                        const answerValue = variantMatch[2].trim();
+                        let answerValue = variantMatch[2].trim();
+                        
+                        // Убираем лишние пробелы, но сохраняем числа
+                        answerValue = answerValue.replace(/\s+/g, ' ').trim();
                         
                         // Пытаемся найти соответствующий вариант в question.answers
+                        for (const answer of question.answers || []) {
+                            if (answer.value === variant || answer.value.toLowerCase() === variant) {
+                                // Используем извлеченное значение, если оно содержит число
+                                // Иначе используем текст из answer
+                                const finalText = answerValue || answer.text || answer.value;
+                                return {
+                                    value: answer.value,
+                                    text: finalText
+                                };
+                            }
+                        }
+                        
+                        // Если не нашли в question.answers, возвращаем то что извлекли
+                        return {
+                            value: variant,
+                            text: answerValue
+                        };
+                    }
+                }
+                
+                // Способ 2.5: Ищем правильный ответ, если он выделен (для случаев когда нужно сохранить правильный)
+                const correctAnswer = element.querySelector('.rightanswer, .correctanswer, .correct .answer');
+                if (correctAnswer) {
+                    const correctText = correctAnswer.innerText || correctAnswer.textContent;
+                    const correctMatch = correctText.match(/^([a-e])\.?\s*(.+)$/i);
+                    if (correctMatch) {
+                        const variant = correctMatch[1].toLowerCase();
+                        let answerValue = correctMatch[2].trim();
+                        answerValue = answerValue.replace(/\s+/g, ' ').trim();
+                        
                         for (const answer of question.answers || []) {
                             if (answer.value === variant || answer.value.toLowerCase() === variant) {
                                 return {
@@ -374,12 +422,6 @@
                                 };
                             }
                         }
-                        
-                        // Если не нашли, возвращаем то что извлекли
-                        return {
-                            value: variant,
-                            text: answerValue
-                        };
                     }
                 }
 
@@ -697,25 +739,20 @@
                 
                 let text = clone.innerText || clone.textContent || '';
                 
-                // Очищаем текст от дубликатов (например, "m=1 m=1" -> "m=1")
-                text = text.replace(/\b(\w+=\d+)\s+\1\b/g, '$1');
-                text = text.replace(/\b(\w+=\d+\.\d+)\s+\1\b/g, '$1');
-                
                 // Обрабатываем LaTeX команды - заменяем на читаемый текст
                 text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
                 text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1'); // Убираем другие LaTeX команды
                 
-                // Убираем множественные пробелы
-                text = text.replace(/\s+/g, ' ');
+                // Убираем только точные дубликаты (когда два одинаковых значения подряд)
+                // Например: "m=1 m=1" -> "m=1", но НЕ трогаем "m=1 кг" и "m=1 кг" если они в разных местах
+                text = text.replace(/\b([a-zA-Zа-яА-Я]+=\d+(?:\.\d+)?(?:\s+[а-яА-Я]+)?)\s+\1\b/g, '$1');
                 
-                // Убираем пробелы вокруг знаков равенства и математических операторов
-                text = text.replace(/\s*=\s*/g, '=');
-                text = text.replace(/\s*\+\s*/g, '+');
-                text = text.replace(/\s*-\s*/g, '-');
+                // Убираем множественные пробелы (но сохраняем одиночные)
+                text = text.replace(/\s{2,}/g, ' ');
                 
-                // Восстанавливаем пробелы после знаков равенства для читаемости
-                text = text.replace(/([a-zA-Z])=([0-9])/g, '$1 = $2');
-                text = text.replace(/([0-9])=([a-zA-Z])/g, '$1 = $2');
+                // Нормализуем пробелы вокруг знаков равенства (добавляем пробелы для читаемости)
+                text = text.replace(/([a-zA-Zа-яА-Я])\s*=\s*([0-9])/g, '$1 = $2');
+                text = text.replace(/([0-9])\s*=\s*([a-zA-Zа-яА-Я])/g, '$1 = $2');
                 
                 return text.trim();
             }

@@ -1,6 +1,6 @@
 {
    "manifest_version": 3,
-   "name": "Moodle Quiz Solver",
+   "name": "LMS MAI Quiz Solver",
    "version": "1.0.0",
    "description": "Помогает решать тесты в Moodle LMS",
    "author": "Ваше имя",
@@ -15,7 +15,7 @@
    ],
    "action": {
       "default_popup": "html/popup.html",
-      "default_title": "Moodle Quiz Solver",
+      "default_title": "LMS MAI Quiz Solver",
       "default_icon": {
          "16": "icons/logo@16.png",
          "32": "icons/logo@32.png",

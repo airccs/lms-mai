@@ -1,0 +1,56 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+    
+    - name: Create wrangler.toml from template
+      run: |
+        echo "Current directory:"
+        pwd
+        echo ""
+        echo "Files in directory:"
+        ls -la
+        echo ""
+        echo "Copying wrangler.toml.example to wrangler.toml:"
+        cp wrangler.toml.example wrangler.toml
+        echo "Replacing KV namespace ID:"
+        sed -i "s/YOUR_KV_NAMESPACE_ID/${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}/g" wrangler.toml
+        echo ""
+        echo "Created wrangler.toml contents:"
+        cat wrangler.toml
+        echo ""
+        echo "Checking worker.js exists:"
+        ls -la worker.js || echo "ERROR: worker.js not found!"
+        echo ""
+        echo "Verifying wrangler.toml exists:"
+        ls -la wrangler.toml || echo "ERROR: wrangler.toml not found!"
+    
+    - name: Install Wrangler
+      run: npm install -g wrangler@4
+    
+    - name: Deploy to Cloudflare Workers
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      run: |
+        echo "Deploying with explicit command..."
+        echo "Current directory:"
+        pwd
+        echo "Files:"
+        ls -la
+        echo "Running deploy command:"
+        wrangler deploy worker.js --config wrangler.toml

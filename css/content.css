@@ -1,0 +1,58 @@
+.quiz-solver-btn {
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.quiz-solver-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.quiz-solver-btn:active {
+    transform: translateY(0);
+}
+
+.quiz-solver-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.quiz-solver-notification {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-weight: 500;
+}
+
+.quiz-solver-stats {
+    animation: fadeIn 0.3s ease;
+}
+
+.quiz-solver-saved {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.quiz-solver-buttons {
+    position: relative;
+    z-index: 1000;
+}
+
+.quiz-solver-error-list {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-top: 5px;
+}
+
+.quiz-solver-error-list li {
+    margin: 3px 0;
+    padding: 2px 0;
+}

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moodle Quiz Solver</title>
+    <link rel="stylesheet" href="../css/popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 Moodle Quiz Solver</h1>
+            <p class="subtitle">Автоматический помощник для решения тестов</p>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <h2>📖 Как использовать:</h2>
+                <ol class="instructions">
+                    <li>Откройте тест в Moodle</li>
+                    <li>Нажмите <strong>"🔍 Найти ответ"</strong> под вопросом</li>
+                    <li>Расширение автоматически найдет и применит правильный ответ</li>
+                    <li>Или используйте <strong>"⚡ Авто-решение"</strong> для всех вопросов сразу</li>
+                </ol>
+            </div>
+
+            <div class="section">
+                <h2>✨ Возможности:</h2>
+                <ul class="features">
+                    <li>🔍 Автоматический поиск правильных ответов</li>
+                    <li>💡 Умный анализ вопросов и вариантов</li>
+                    <li>⚡ Массовое решение всех вопросов</li>
+                    <li>🌐 Поиск ответов в Google для сложных вопросов</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>💡 Методы поиска ответов:</h2>
+                <div class="methods">
+                    <div class="method-item">
+                        <strong>1. Сохраненные ответы</strong>
+                        <p>Использует ранее сохраненные правильные ответы</p>
+                    </div>
+                    <div class="method-item">
+                        <strong>2. Статистика других пользователей</strong>
+                        <p>Показывает наиболее популярные правильные ответы</p>
+                    </div>
+                    <div class="method-item">
+                        <strong>3. Поиск на странице</strong>
+                        <p>Ищет уже отмеченные правильные ответы</p>
+                    </div>
+                    <div class="method-item">
+                        <strong>4. Эвристический анализ</strong>
+                        <p>Анализирует варианты ответов и выбирает наиболее вероятный</p>
+                    </div>
+                    <div class="method-item">
+                        <strong>5. Онлайн поиск</strong>
+                        <p>Открывает Google для поиска ответа</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📊 Статистика:</h2>
+                <div id="statistics-container">
+                    <div class="stat-item">
+                        <span class="stat-label">Сохранено ответов:</span>
+                        <span class="stat-value" id="saved-answers-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Вопросов в базе:</span>
+                        <span class="stat-value" id="questions-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Всего попыток:</span>
+                        <span class="stat-value" id="total-attempts">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🌐 Синхронизация между пользователями:</h2>
+                <div id="api-settings">
+                    <div style="margin-bottom: 10px;">
+                        <span style="color: #4CAF50; font-weight: bold;">✅ Синхронизация включена</span>
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Сервер:</div>
+                        <div style="font-size: 11px; color: #333; word-break: break-all;" id="api-url-display">https://lms-mai-api.iljakir-06.workers.dev</div>
+                        <div id="api-status" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="info-box">
+                    <strong>💡 Совет:</strong> Сохраняйте правильные ответы с помощью кнопки "💾 Сохранить ответ" - это поможет другим пользователям и вам в будущем. Включите синхронизацию с сервером для обмена статистикой между всеми пользователями.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/popup.js"></script>
+</body>
+</html>

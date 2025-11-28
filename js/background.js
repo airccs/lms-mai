@@ -48,12 +48,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'saveAnswer') {
-        const { questionHash, answer, isCorrect } = request;
+        const { questionHash, answer, isCorrect, questionText } = request;
         chrome.storage.local.set({
             [`answer_${questionHash}`]: {
                 answer: answer,
                 timestamp: Date.now(),
-                isCorrect: isCorrect
+                isCorrect: isCorrect,
+                questionText: questionText || null // Сохраняем текст вопроса
             }
         }, () => {
             sendResponse({ success: true });

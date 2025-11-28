@@ -8,7 +8,8 @@
    "permissions": [
       "storage",
       "activeTab",
-      "scripting"
+      "scripting",
+      "tabs"
    ],
    "host_permissions": [
       "*://*/*"
@@ -46,7 +47,7 @@
    },
    "web_accessible_resources": [
       {
-         "resources": ["css/*", "html/js/*", "html/css/*"],
+         "resources": ["css/*", "html/js/*", "html/css/*", "html/saved-data.html"],
          "matches": ["*://*/*"]
       }
    ]

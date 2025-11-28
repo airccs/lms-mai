@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сохраненные данные - LMS MAI Quiz Solver</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #2196F3;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+
+        .stat-card p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1976D2;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+
+        .btn-secondary {
+            background: #9E9E9E;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #757575;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        .data-list {
+            display: grid;
+            gap: 20px;
+        }
+
+        .data-item {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .data-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .data-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .data-item-title {
+            font-weight: 600;
+            color: #2196F3;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .data-item-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .data-item-question {
+            background: white;
+            padding: 15px;
+            border-left: 4px solid #2196F3;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .data-item-answer {
+            background: #E8F5E9;
+            padding: 15px;
+            border-left: 4px solid #4CAF50;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .data-item-answer.correct {
+            background: #E8F5E9;
+            border-left-color: #4CAF50;
+        }
+
+        .data-item-answer.incorrect {
+            background: #FFEBEE;
+            border-left-color: #f44336;
+        }
+
+        .data-item-answer.unknown {
+            background: #FFF3E0;
+            border-left-color: #FF9800;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-correct {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .badge-incorrect {
+            background: #f44336;
+            color: white;
+        }
+
+        .badge-unknown {
+            background: #FF9800;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .delete-btn {
+            background: #f44336;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .delete-btn:hover {
+            background: #d32f2f;
+        }
+
+        .export-btn {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .export-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 Сохраненные данные</h1>
+        <p class="subtitle">Просмотр всех сохраненных вопросов и ответов</p>
+
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <h3 id="total-questions">0</h3>
+                <p>Всего вопросов</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="total-answers">0</h3>
+                <p>Всего ответов</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="correct-answers">0</h3>
+                <p>Правильных</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="storage-size">0 KB</h3>
+                <p>Размер данных</p>
+            </div>
+        </div>
+
+        <div class="controls">
+            <input type="text" class="search-box" id="search-box" placeholder="🔍 Поиск по вопросам и ответам...">
+            <button class="btn-primary" onclick="loadData()">🔄 Обновить</button>
+            <button class="btn-secondary export-btn" onclick="exportData()">📥 Экспорт JSON</button>
+            <button class="btn-danger" onclick="clearAllData()">🗑️ Очистить все</button>
+        </div>
+
+        <div id="data-list" class="data-list">
+            <div class="loading">Загрузка данных...</div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+
+        async function loadData() {
+            const dataList = document.getElementById('data-list');
+            dataList.innerHTML = '<div class="loading">Загрузка данных...</div>';
+
+            try {
+                // Загружаем сохраненные ответы из local storage
+                const localData = await chrome.storage.local.get(null);
+                const savedAnswers = [];
+
+                for (const [key, value] of Object.entries(localData)) {
+                    if (key.startsWith('answer_')) {
+                        const hash = key.replace('answer_', '');
+                        savedAnswers.push({
+                            hash: hash,
+                            answer: value.answer,
+                            timestamp: value.timestamp,
+                            isCorrect: value.isCorrect,
+                            questionText: value.questionText || 'Текст вопроса не сохранен'
+                        });
+                    }
+                }
+
+                // Загружаем статистику из sync storage
+                const syncData = await chrome.storage.sync.get(['questionStats']);
+                const statistics = syncData.questionStats || {};
+
+                // Объединяем данные
+                allData = savedAnswers.map(item => {
+                    const stats = statistics[item.hash] || {};
+                    return {
+                        ...item,
+                        statistics: stats
+                    };
+                });
+
+                // Сортируем по дате (новые первыми)
+                allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+                displayData(allData);
+                updateStats(allData);
+            } catch (error) {
+                console.error('Error loading data:', error);
+                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных</p></div>';
+            }
+        }
+
+        function displayData(data) {
+            const dataList = document.getElementById('data-list');
+
+            if (data.length === 0) {
+                dataList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>Нет сохраненных данных</h3>
+                        <p>Начните использовать расширение на тестах Moodle, чтобы сохранять вопросы и ответы</p>
+                    </div>
+                `;
+                return;
+            }
+
+            dataList.innerHTML = data.map((item, index) => {
+                const date = item.timestamp ? new Date(item.timestamp).toLocaleString('ru-RU') : 'Неизвестно';
+                const isCorrect = item.isCorrect;
+                const correctClass = isCorrect === true ? 'correct' : (isCorrect === false ? 'incorrect' : 'unknown');
+                const correctBadge = isCorrect === true ? '<span class="badge badge-correct">Правильно</span>' : 
+                                    (isCorrect === false ? '<span class="badge badge-incorrect">Неправильно</span>' : 
+                                    '<span class="badge badge-unknown">Неизвестно</span>');
+
+                const answerText = formatAnswer(item.answer);
+                const stats = item.statistics || {};
+                const accuracy = stats.totalAttempts > 0 ? 
+                    Math.round((stats.correctAttempts / stats.totalAttempts) * 100) : null;
+
+                return `
+                    <div class="data-item">
+                        <div class="data-item-header">
+                            <div>
+                                <div class="data-item-title">Вопрос #${index + 1}</div>
+                                <div class="data-item-meta">
+                                    <span>📅 ${date}</span>
+                                    <span>🔑 Hash: ${item.hash}</span>
+                                    ${accuracy !== null ? `<span>📊 Точность: ${accuracy}%</span>` : ''}
+                                    ${stats.totalAttempts ? `<span>👥 Попыток: ${stats.totalAttempts}</span>` : ''}
+                                </div>
+                            </div>
+                            ${correctBadge}
+                        </div>
+                        <div class="data-item-question">
+                            <strong>Вопрос:</strong><br>
+                            ${escapeHtml(item.questionText)}
+                        </div>
+                        <div class="data-item-answer ${correctClass}">
+                            <strong>Ответ:</strong><br>
+                            ${escapeHtml(answerText)}
+                        </div>
+                        <button class="delete-btn" onclick="deleteItem('${item.hash}')">Удалить</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function formatAnswer(answer) {
+            if (typeof answer === 'string') return answer;
+            if (Array.isArray(answer)) return answer.join(', ');
+            if (typeof answer === 'object') {
+                if (answer.text) return answer.text;
+                if (answer.value) return answer.value;
+                return JSON.stringify(answer);
+            }
+            return String(answer);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function updateStats(data) {
+            document.getElementById('total-questions').textContent = data.length;
+            document.getElementById('total-answers').textContent = data.length;
+            
+            const correctCount = data.filter(item => item.isCorrect === true).length;
+            document.getElementById('correct-answers').textContent = correctCount;
+
+            // Вычисляем примерный размер данных
+            const dataSize = JSON.stringify(data).length;
+            const sizeKB = (dataSize / 1024).toFixed(2);
+            document.getElementById('storage-size').textContent = `${sizeKB} KB`;
+        }
+
+        async function deleteItem(hash) {
+            if (!confirm('Удалить этот вопрос и ответ?')) {
+                return;
+            }
+
+            try {
+                await chrome.storage.local.remove(`answer_${hash}`);
+                loadData();
+            } catch (error) {
+                console.error('Error deleting item:', error);
+                alert('Ошибка при удалении');
+            }
+        }
+
+        async function clearAllData() {
+            if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ сохраненные вопросы и ответы. Продолжить?')) {
+                return;
+            }
+
+            if (!confirm('Вы уверены? Это действие нельзя отменить!')) {
+                return;
+            }
+
+            try {
+                const allData = await chrome.storage.local.get(null);
+                const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
+                await chrome.storage.local.remove(keysToRemove);
+                loadData();
+                alert('Все данные удалены');
+            } catch (error) {
+                console.error('Error clearing data:', error);
+                alert('Ошибка при удалении данных');
+            }
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify(allData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `lms-mai-saved-data-${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Поиск
+        document.getElementById('search-box').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (query === '') {
+                displayData(allData);
+                return;
+            }
+
+            const filtered = allData.filter(item => {
+                const questionText = (item.questionText || '').toLowerCase();
+                const answerText = formatAnswer(item.answer).toLowerCase();
+                return questionText.includes(query) || answerText.includes(query);
+            });
+
+            displayData(filtered);
+        });
+
+        // Загружаем данные при загрузке страницы
+        loadData();
+    </script>
+</body>
+</html>
+

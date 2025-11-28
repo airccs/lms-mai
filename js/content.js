@@ -313,17 +313,19 @@
             }
         }
 
-        async saveAnswer(questionHash, answer, isCorrect = null) {
+        async saveAnswer(questionHash, answer, isCorrect = null, questionText = null) {
             try {
                 const answerData = {
                     answer: answer,
                     timestamp: Date.now(),
-                    isCorrect: isCorrect
+                    isCorrect: isCorrect,
+                    questionText: questionText || null // Сохраняем текст вопроса
                 };
                 await chrome.storage.local.set({
                     [`answer_${questionHash}`]: answerData
                 });
                 this.savedAnswers.set(questionHash, answerData);
+                console.log(`[Save] Сохранен ответ для вопроса (hash: ${questionHash})`);
             } catch (e) {
                 console.error('Error saving answer:', e);
             }
@@ -710,7 +712,7 @@
                 // Определяем правильность ответа, если возможно
                 const isCorrect = this.checkAnswerCorrectness(question, currentAnswer);
 
-                await this.saveAnswer(question.hash, currentAnswer, isCorrect);
+                await this.saveAnswer(question.hash, currentAnswer, isCorrect, question.text);
                 await this.updateStatistics(question.hash, currentAnswer, isCorrect);
 
                 this.showNotification('✅ Ответ сохранен!', 'success');
@@ -1393,7 +1395,7 @@
                 const isCorrect = this.checkAnswerCorrectness(question, answer);
                 
                 // Сохраняем ответ
-                await this.saveAnswer(question.hash, answer, isCorrect);
+                await this.saveAnswer(question.hash, answer, isCorrect, question.text);
                 
                 // Показываем индикатор сохранения
                 this.showAutoSaveIndicator(question.element);

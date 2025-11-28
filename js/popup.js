@@ -43,12 +43,6 @@ async function loadApiSettings() {
         const response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
         if (response && response.settings) {
             const settings = response.settings;
-            const apiUrlDisplay = document.getElementById('api-url-display');
-            
-            // Отображаем URL сервера
-            if (apiUrlDisplay) {
-                apiUrlDisplay.textContent = settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';
-            }
             
             // Проверяем соединение
             const apiUrl = settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';

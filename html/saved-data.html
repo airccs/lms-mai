@@ -305,44 +305,21 @@
             dataList.innerHTML = '<div class="loading">Загрузка данных...</div>';
 
             try {
-                // Загружаем сохраненные ответы из local storage
-                const localData = await chrome.storage.local.get(null);
-                const savedAnswers = [];
-
-                for (const [key, value] of Object.entries(localData)) {
-                    if (key.startsWith('answer_')) {
-                        const hash = key.replace('answer_', '');
-                        savedAnswers.push({
-                            hash: hash,
-                            answer: value.answer,
-                            timestamp: value.timestamp,
-                            isCorrect: value.isCorrect,
-                            questionText: value.questionText || 'Текст вопроса не сохранен'
-                        });
-                    }
+                // Используем background script для получения данных
+                const response = await chrome.runtime.sendMessage({ action: 'getAllSavedData' });
+                
+                if (response && response.success && response.data) {
+                    allData = response.data;
+                    displayData(allData);
+                    updateStats(allData);
+                } else {
+                    allData = [];
+                    displayData(allData);
+                    updateStats(allData);
                 }
-
-                // Загружаем статистику из sync storage
-                const syncData = await chrome.storage.sync.get(['questionStats']);
-                const statistics = syncData.questionStats || {};
-
-                // Объединяем данные
-                allData = savedAnswers.map(item => {
-                    const stats = statistics[item.hash] || {};
-                    return {
-                        ...item,
-                        statistics: stats
-                    };
-                });
-
-                // Сортируем по дате (новые первыми)
-                allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-                displayData(allData);
-                updateStats(allData);
             } catch (error) {
                 console.error('Error loading data:', error);
-                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных</p></div>';
+                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных. Проверьте консоль для деталей.</p></div>';
             }
         }
 
@@ -437,8 +414,16 @@
             }
 
             try {
-                await chrome.storage.local.remove(`answer_${hash}`);
-                loadData();
+                const response = await chrome.runtime.sendMessage({ 
+                    action: 'deleteSavedAnswer', 
+                    hash: hash 
+                });
+                
+                if (response && response.success) {
+                    loadData();
+                } else {
+                    alert('Ошибка при удалении');
+                }
             } catch (error) {
                 console.error('Error deleting item:', error);
                 alert('Ошибка при удалении');
@@ -455,11 +440,14 @@
             }
 
             try {
-                const allData = await chrome.storage.local.get(null);
-                const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
-                await chrome.storage.local.remove(keysToRemove);
-                loadData();
-                alert('Все данные удалены');
+                const response = await chrome.runtime.sendMessage({ action: 'clearAllSavedAnswers' });
+                
+                if (response && response.success) {
+                    loadData();
+                    alert('Все данные удалены');
+                } else {
+                    alert('Ошибка при удалении данных');
+                }
             } catch (error) {
                 console.error('Error clearing data:', error);
                 alert('Ошибка при удалении данных');

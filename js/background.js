@@ -143,6 +143,65 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         return true;
     }
+
+    // Получить все сохраненные данные для страницы просмотра
+    if (request.action === 'getAllSavedData') {
+        chrome.storage.local.get(null, (localData) => {
+            chrome.storage.sync.get(['questionStats'], (syncData) => {
+                const savedAnswers = [];
+                
+                for (const [key, value] of Object.entries(localData)) {
+                    if (key.startsWith('answer_')) {
+                        const hash = key.replace('answer_', '');
+                        savedAnswers.push({
+                            hash: hash,
+                            answer: value.answer,
+                            timestamp: value.timestamp,
+                            isCorrect: value.isCorrect,
+                            questionText: value.questionText || 'Текст вопроса не сохранен'
+                        });
+                    }
+                }
+
+                const statistics = syncData.questionStats || {};
+
+                // Объединяем данные
+                const allData = savedAnswers.map(item => {
+                    const stats = statistics[item.hash] || {};
+                    return {
+                        ...item,
+                        statistics: stats
+                    };
+                });
+
+                // Сортируем по дате (новые первыми)
+                allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+                sendResponse({ success: true, data: allData });
+            });
+        });
+        return true;
+    }
+
+    // Удалить сохраненный ответ
+    if (request.action === 'deleteSavedAnswer') {
+        const { hash } = request;
+        chrome.storage.local.remove(`answer_${hash}`, () => {
+            sendResponse({ success: true });
+        });
+        return true;
+    }
+
+    // Очистить все сохраненные ответы
+    if (request.action === 'clearAllSavedAnswers') {
+        chrome.storage.local.get(null, (allData) => {
+            const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
+            chrome.storage.local.remove(keysToRemove, () => {
+                sendResponse({ success: true });
+            });
+        });
+        return true;
+    }
 });
 
 // Обработка синхронизации с сервером

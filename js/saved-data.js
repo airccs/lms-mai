@@ -1,0 +1,204 @@
+let allData = [];
+
+function loadData() {
+    const dataList = document.getElementById('data-list');
+    dataList.innerHTML = '<div class="loading">Загрузка данных...</div>';
+
+    try {
+        console.log('[Saved Data] Запрос данных...');
+        
+        // Используем background script для получения данных
+        chrome.runtime.sendMessage({ action: 'getAllSavedData' }, (response) => {
+            console.log('[Saved Data] Получен ответ:', response);
+            
+            if (chrome.runtime.lastError) {
+                console.error('[Saved Data] Ошибка runtime:', chrome.runtime.lastError);
+                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка: ' + chrome.runtime.lastError.message + '</p></div>';
+                return;
+            }
+            
+            if (response && response.success && response.data) {
+                console.log('[Saved Data] Данные получены:', response.data.length, 'записей');
+                allData = response.data;
+                displayData(allData);
+                updateStats(allData);
+            } else {
+                console.warn('[Saved Data] Нет данных или неверный формат ответа:', response);
+                allData = [];
+                displayData(allData);
+                updateStats(allData);
+            }
+        });
+    } catch (error) {
+        console.error('[Saved Data] Ошибка загрузки данных:', error);
+        dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных. Проверьте консоль для деталей.</p><p style="font-size: 12px; color: #999;">' + error.message + '</p></div>';
+    }
+}
+
+function displayData(data) {
+    const dataList = document.getElementById('data-list');
+
+    if (data.length === 0) {
+        dataList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📭</div>
+                <h3>Нет сохраненных данных</h3>
+                <p>Начните использовать расширение на тестах Moodle, чтобы сохранять вопросы и ответы</p>
+            </div>
+        `;
+        return;
+    }
+
+    dataList.innerHTML = data.map((item, index) => {
+        const date = item.timestamp ? new Date(item.timestamp).toLocaleString('ru-RU') : 'Неизвестно';
+        const isCorrect = item.isCorrect;
+        const correctClass = isCorrect === true ? 'correct' : (isCorrect === false ? 'incorrect' : 'unknown');
+        const correctBadge = isCorrect === true ? '<span class="badge badge-correct">Правильно</span>' : 
+                            (isCorrect === false ? '<span class="badge badge-incorrect">Неправильно</span>' : 
+                            '<span class="badge badge-unknown">Неизвестно</span>');
+
+        const answerText = formatAnswer(item.answer);
+        const stats = item.statistics || {};
+        const accuracy = stats.totalAttempts > 0 ? 
+            Math.round((stats.correctAttempts / stats.totalAttempts) * 100) : null;
+
+        return `
+            <div class="data-item">
+                <div class="data-item-header">
+                    <div>
+                        <div class="data-item-title">Вопрос #${index + 1}</div>
+                        <div class="data-item-meta">
+                            <span>📅 ${date}</span>
+                            <span>🔑 Hash: ${item.hash}</span>
+                            ${accuracy !== null ? `<span>📊 Точность: ${accuracy}%</span>` : ''}
+                            ${stats.totalAttempts ? `<span>👥 Попыток: ${stats.totalAttempts}</span>` : ''}
+                        </div>
+                    </div>
+                    ${correctBadge}
+                </div>
+                <div class="data-item-question">
+                    <strong>Вопрос:</strong><br>
+                    ${escapeHtml(item.questionText)}
+                </div>
+                <div class="data-item-answer ${correctClass}">
+                    <strong>Ответ:</strong><br>
+                    ${escapeHtml(answerText)}
+                </div>
+                <button class="delete-btn" onclick="deleteItem('${item.hash}')">Удалить</button>
+            </div>
+        `;
+    }).join('');
+}
+
+function formatAnswer(answer) {
+    if (typeof answer === 'string') return answer;
+    if (Array.isArray(answer)) return answer.join(', ');
+    if (typeof answer === 'object') {
+        if (answer.text) return answer.text;
+        if (answer.value) return answer.value;
+        return JSON.stringify(answer);
+    }
+    return String(answer);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function updateStats(data) {
+    document.getElementById('total-questions').textContent = data.length;
+    document.getElementById('total-answers').textContent = data.length;
+    
+    const correctCount = data.filter(item => item.isCorrect === true).length;
+    document.getElementById('correct-answers').textContent = correctCount;
+
+    // Вычисляем примерный размер данных
+    const dataSize = JSON.stringify(data).length;
+    const sizeKB = (dataSize / 1024).toFixed(2);
+    document.getElementById('storage-size').textContent = `${sizeKB} KB`;
+}
+
+function deleteItem(hash) {
+    if (!confirm('Удалить этот вопрос и ответ?')) {
+        return;
+    }
+
+    chrome.runtime.sendMessage({ 
+        action: 'deleteSavedAnswer', 
+        hash: hash 
+    }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error deleting item:', chrome.runtime.lastError);
+            alert('Ошибка при удалении: ' + chrome.runtime.lastError.message);
+            return;
+        }
+        
+        if (response && response.success) {
+            loadData();
+        } else {
+            alert('Ошибка при удалении');
+        }
+    });
+}
+
+function clearAllData() {
+    if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ сохраненные вопросы и ответы. Продолжить?')) {
+        return;
+    }
+
+    if (!confirm('Вы уверены? Это действие нельзя отменить!')) {
+        return;
+    }
+
+    chrome.runtime.sendMessage({ action: 'clearAllSavedAnswers' }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error clearing data:', chrome.runtime.lastError);
+            alert('Ошибка при удалении данных: ' + chrome.runtime.lastError.message);
+            return;
+        }
+        
+        if (response && response.success) {
+            loadData();
+            alert('Все данные удалены');
+        } else {
+            alert('Ошибка при удалении данных');
+        }
+    });
+}
+
+function exportData() {
+    const dataStr = JSON.stringify(allData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lms-mai-saved-data-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', () => {
+    // Поиск
+    document.getElementById('search-box').addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        if (query === '') {
+            displayData(allData);
+            return;
+        }
+
+        const filtered = allData.filter(item => {
+            const questionText = (item.questionText || '').toLowerCase();
+            const answerText = formatAnswer(item.answer).toLowerCase();
+            return questionText.includes(query) || answerText.includes(query);
+        });
+
+        displayData(filtered);
+    });
+
+    // Загружаем данные при загрузке страницы
+    loadData();
+});
+

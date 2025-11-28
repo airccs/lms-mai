@@ -47,7 +47,7 @@
    },
    "web_accessible_resources": [
       {
-         "resources": ["css/*", "html/js/*", "html/css/*", "html/saved-data.html"],
+         "resources": ["css/*", "html/js/*", "html/css/*", "html/saved-data.html", "js/saved-data.js"],
          "matches": ["*://*/*"]
       }
    ]

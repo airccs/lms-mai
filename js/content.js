@@ -767,22 +767,48 @@
                 });
                 
                 // Получаем текст - используем textContent для сохранения всех данных
-                let text = qtext.textContent || qtext.innerText || '';
+                // Сначала пробуем получить текст из MathJax элементов, если они есть
+                let text = '';
+                
+                // Ищем MathJax элементы и извлекаем их текст
+                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math]');
+                if (mathElements.length > 0) {
+                    mathElements.forEach(mathEl => {
+                        const mathText = mathEl.getAttribute('alttext') || 
+                                       mathEl.getAttribute('data-math') ||
+                                       mathEl.textContent || 
+                                       mathEl.innerText;
+                        if (mathText) {
+                            text += ' ' + mathText;
+                        }
+                    });
+                }
+                
+                // Получаем основной текст
+                const mainText = qtext.textContent || qtext.innerText || '';
+                text = (text + ' ' + mainText).trim();
                 
                 // Обрабатываем LaTeX команды - заменяем на читаемый текст
                 text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
                 text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1'); // Убираем другие LaTeX команды
                 
-                // Убираем только точные дубликаты подряд (например, "m=1 m=1" -> "m=1")
-                // НО только если они идут друг за другом с пробелом
-                text = text.replace(/\b([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)\s+([а-яА-Я]+)?\s+\1\s*=\s*\2(?:\s+\3)?\b/g, '$1 = $2 $3');
+                // Убираем дубликаты - более агрессивное регулярное выражение
+                // Обрабатываем случаи: "m = 1m = 1", "m = 10m = 10", "r = 3r = 3", "s = 4t3s = 4t3"
+                // Паттерн: буква = число буква = число (без пробела между числом и буквой)
+                text = text.replace(/([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)([a-zA-Zа-яА-Я]+)\s*=\s*\2/g, '$1 = $2');
+                
+                // Обрабатываем случаи: "m = 1 m = 1", "m = 10 m = 10" (с пробелом)
+                text = text.replace(/([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)\s+([а-яА-Я]+)?\s+\1\s*=\s*\2(?:\s+\3)?/g, '$1 = $2 $3');
+                
+                // Обрабатываем случаи: "m2=5m2=5", "ε=120ε=120" (без пробелов)
+                text = text.replace(/([a-zA-Zа-яА-Я0-9]+)=(\d+(?:\.\d+)?)\1=\2/g, '$1=$2');
                 
                 // Убираем множественные пробелы (но сохраняем одиночные)
                 text = text.replace(/\s{2,}/g, ' ');
                 
                 // Нормализуем пробелы вокруг знаков равенства (добавляем пробелы для читаемости)
-                text = text.replace(/([a-zA-Zа-яА-Я])\s*=\s*(\d+(?:\.\d+)?)/g, '$1 = $2');
-                text = text.replace(/(\d+(?:\.\d+)?)\s*=\s*([a-zA-Zа-яА-Я])/g, '$1 = $2');
+                text = text.replace(/([a-zA-Zа-яА-Я0-9])\s*=\s*(\d+(?:\.\d+)?)/g, '$1 = $2');
+                text = text.replace(/(\d+(?:\.\d+)?)\s*=\s*([a-zA-Zа-яА-Я0-9])/g, '$1 = $2');
                 
                 // Убираем пробелы в начале и конце строк
                 text = text.trim();

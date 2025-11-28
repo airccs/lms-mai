@@ -63,6 +63,8 @@
                     }
 
                     if (userAnswer && isCorrect !== null) {
+                        // Сохраняем ответ с правильным isCorrect и текстом вопроса
+                        await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
                         await this.updateStatistics(question.hash, userAnswer, isCorrect);
                         
                         results.push({
@@ -751,12 +753,25 @@
 
         checkAnswerCorrectness(question, answer) {
             // Пытаемся определить правильность ответа
+            // На странице теста (до проверки) правильность обычно неизвестна
+            // Эта функция используется только при ручном сохранении во время теста
+            
+            // Если мы на странице результатов, используем более точный метод
+            if (this.isReviewPage()) {
+                // На странице результатов правильность уже определена
+                // Но эта функция вызывается только при ручном сохранении, не при автосохранении
+                return null; // Пусть определяет processReviewPage
+            }
+            
+            // На странице теста правильность неизвестна до проверки
             if (question.type === 'multichoice' || question.type === 'truefalse') {
                 const selectedAnswer = question.answers.find(a => 
                     (a.value === answer.value || a.text === answer.text)
                 );
                 if (selectedAnswer) {
-                    return selectedAnswer.correct || false;
+                    // На странице теста correct обычно false или null
+                    // Возвращаем null, чтобы не помечать как неправильный
+                    return selectedAnswer.correct || null;
                 }
             }
             return null;

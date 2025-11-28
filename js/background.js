@@ -146,8 +146,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // Получить все сохраненные данные для страницы просмотра
     if (request.action === 'getAllSavedData') {
+        console.log('[Background] Запрос getAllSavedData');
+        
         chrome.storage.local.get(null, (localData) => {
+            console.log('[Background] Local data получен:', Object.keys(localData).length, 'ключей');
+            
             chrome.storage.sync.get(['questionStats'], (syncData) => {
+                console.log('[Background] Sync data получен');
+                
                 const savedAnswers = [];
                 
                 for (const [key, value] of Object.entries(localData)) {
@@ -163,7 +169,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     }
                 }
 
+                console.log('[Background] Найдено сохраненных ответов:', savedAnswers.length);
+
                 const statistics = syncData.questionStats || {};
+                console.log('[Background] Статистика по вопросам:', Object.keys(statistics).length);
 
                 // Объединяем данные
                 const allData = savedAnswers.map(item => {
@@ -177,6 +186,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // Сортируем по дате (новые первыми)
                 allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
+                console.log('[Background] Отправка данных:', allData.length, 'записей');
                 sendResponse({ success: true, data: allData });
             });
         });

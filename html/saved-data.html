@@ -305,21 +305,33 @@
             dataList.innerHTML = '<div class="loading">Загрузка данных...</div>';
 
             try {
-                // Используем background script для получения данных
-                const response = await chrome.runtime.sendMessage({ action: 'getAllSavedData' });
+                console.log('[Saved Data] Запрос данных...');
                 
-                if (response && response.success && response.data) {
-                    allData = response.data;
-                    displayData(allData);
-                    updateStats(allData);
-                } else {
-                    allData = [];
-                    displayData(allData);
-                    updateStats(allData);
-                }
+                // Используем background script для получения данных
+                chrome.runtime.sendMessage({ action: 'getAllSavedData' }, (response) => {
+                    console.log('[Saved Data] Получен ответ:', response);
+                    
+                    if (chrome.runtime.lastError) {
+                        console.error('[Saved Data] Ошибка runtime:', chrome.runtime.lastError);
+                        dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка: ' + chrome.runtime.lastError.message + '</p></div>';
+                        return;
+                    }
+                    
+                    if (response && response.success && response.data) {
+                        console.log('[Saved Data] Данные получены:', response.data.length, 'записей');
+                        allData = response.data;
+                        displayData(allData);
+                        updateStats(allData);
+                    } else {
+                        console.warn('[Saved Data] Нет данных или неверный формат ответа:', response);
+                        allData = [];
+                        displayData(allData);
+                        updateStats(allData);
+                    }
+                });
             } catch (error) {
-                console.error('Error loading data:', error);
-                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных. Проверьте консоль для деталей.</p></div>';
+                console.error('[Saved Data] Ошибка загрузки данных:', error);
+                dataList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">❌</div><p>Ошибка загрузки данных. Проверьте консоль для деталей.</p><p style="font-size: 12px; color: #999;">' + error.message + '</p></div>';
             }
         }
 
@@ -430,7 +442,7 @@
             }
         }
 
-        async function clearAllData() {
+        function clearAllData() {
             if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ сохраненные вопросы и ответы. Продолжить?')) {
                 return;
             }
@@ -439,8 +451,12 @@
                 return;
             }
 
-            try {
-                const response = await chrome.runtime.sendMessage({ action: 'clearAllSavedAnswers' });
+            chrome.runtime.sendMessage({ action: 'clearAllSavedAnswers' }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error clearing data:', chrome.runtime.lastError);
+                    alert('Ошибка при удалении данных: ' + chrome.runtime.lastError.message);
+                    return;
+                }
                 
                 if (response && response.success) {
                     loadData();
@@ -448,10 +464,7 @@
                 } else {
                     alert('Ошибка при удалении данных');
                 }
-            } catch (error) {
-                console.error('Error clearing data:', error);
-                alert('Ошибка при удалении данных');
-            }
+            });
         }
 
         function exportData() {

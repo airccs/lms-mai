@@ -25,47 +25,95 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState('Проверка соединения...');
 
   useEffect(() => {
-    loadStatistics();
-    loadApiSettings();
+    // Используем setTimeout для асинхронной загрузки после монтирования
+    const timer = setTimeout(() => {
+      try {
+        loadStatistics().catch(err => {
+          console.error('Failed to load statistics:', err);
+        });
+        loadApiSettings().catch(err => {
+          console.error('Failed to load API settings:', err);
+        });
+      } catch (err) {
+        console.error('Error in useEffect:', err);
+      }
+    }, 0);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   const loadStatistics = async function loadStatistics() {
     try {
       // Проверяем доступность Chrome API
-      if (typeof chrome === 'undefined' || !chrome.storage) {
+      if (typeof window === 'undefined' || typeof chrome === 'undefined') {
+        console.warn('Chrome API not available - window or chrome is undefined');
+        setStats({ saved: 0, total: 0, attempts: 0 });
+        return;
+      }
+
+      if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
         console.warn('Chrome storage API not available');
         setStats({ saved: 0, total: 0, attempts: 0 });
         return;
       }
 
       // Загружаем сохраненные ответы
-      const localData = await chrome.storage.local.get(null);
+      let localData: Record<string, any> = {};
+      try {
+        localData = await chrome.storage.local.get(null) || {};
+      } catch (err) {
+        console.warn('Error reading local storage:', err);
+        localData = {};
+      }
+
       let savedCount = 0;
       if (localData && typeof localData === 'object') {
-        for (const key of Object.keys(localData)) {
-          if (key && key.startsWith('answer_')) {
-            savedCount++;
+        try {
+          const keys = Object.keys(localData);
+          for (const key of keys) {
+            if (key && typeof key === 'string' && key.startsWith('answer_')) {
+              savedCount++;
+            }
           }
+        } catch (err) {
+          console.warn('Error counting saved answers:', err);
         }
       }
 
       // Загружаем статистику из sync storage
-      const syncData = await chrome.storage.sync.get(['questionStats']);
+      let syncData: any = {};
+      try {
+        syncData = await chrome.storage.sync.get(['questionStats']) || {};
+      } catch (err) {
+        console.warn('Error reading sync storage:', err);
+        syncData = {};
+      }
+
       const questionStats = (syncData && syncData.questionStats) ? syncData.questionStats : {};
-      const questionCount = typeof questionStats === 'object' && questionStats !== null 
-        ? Object.keys(questionStats).length 
-        : 0;
+      let questionCount = 0;
+      if (typeof questionStats === 'object' && questionStats !== null) {
+        try {
+          questionCount = Object.keys(questionStats).length;
+        } catch (err) {
+          console.warn('Error counting questions:', err);
+        }
+      }
 
       // Подсчитываем общее количество попыток
       let totalAttempts = 0;
       if (typeof questionStats === 'object' && questionStats !== null) {
-        for (const stats of Object.values(questionStats)) {
-          if (typeof stats === 'object' && stats !== null && 'totalAttempts' in stats) {
-            const attempts = (stats as any).totalAttempts;
-            if (typeof attempts === 'number' && !isNaN(attempts)) {
-              totalAttempts += attempts;
+        try {
+          const values = Object.values(questionStats);
+          for (const stats of values) {
+            if (typeof stats === 'object' && stats !== null && 'totalAttempts' in stats) {
+              const attempts = (stats as any).totalAttempts;
+              if (typeof attempts === 'number' && !isNaN(attempts) && attempts >= 0) {
+                totalAttempts += attempts;
+              }
             }
           }
+        } catch (err) {
+          console.warn('Error calculating total attempts:', err);
         }
       }
 
@@ -88,15 +136,29 @@ const App: React.FC = () => {
   const loadApiSettings = async function loadApiSettings() {
     try {
       // Проверяем доступность Chrome API
-      if (typeof chrome === 'undefined' || !chrome.runtime) {
+      if (typeof window === 'undefined' || typeof chrome === 'undefined') {
+        console.warn('Chrome API not available - window or chrome is undefined');
+        setSyncStatus('⚠️ API недоступен');
+        return;
+      }
+
+      if (!chrome.runtime || !chrome.runtime.sendMessage) {
         console.warn('Chrome runtime API not available');
         setSyncStatus('⚠️ API недоступен');
         return;
       }
 
-      const response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
-      if (response && response.settings) {
-        const apiUrl = response.settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';
+      let response: any = null;
+      try {
+        response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
+      } catch (err) {
+        console.warn('Error sending message to background:', err);
+        checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
+        return;
+      }
+
+      if (response && response.settings && response.settings.apiUrl) {
+        const apiUrl = response.settings.apiUrl;
         checkApiConnection(apiUrl);
       } else {
         checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');

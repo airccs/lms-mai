@@ -31,6 +31,11 @@ const App: React.FC = () => {
 
   async function loadStatistics() {
     try {
+      if (!chrome?.storage) {
+        console.warn('Chrome storage API not available');
+        return;
+      }
+
       // Загружаем сохраненные ответы
       const localData = await chrome.storage.local.get(null);
       let savedCount = 0;
@@ -60,11 +65,23 @@ const App: React.FC = () => {
       });
     } catch (e) {
       console.error('Error loading statistics:', e);
+      // Устанавливаем значения по умолчанию при ошибке
+      setStats({
+        saved: 0,
+        total: 0,
+        attempts: 0
+      });
     }
   }
 
   async function loadApiSettings() {
     try {
+      if (!chrome?.runtime) {
+        console.warn('Chrome runtime API not available');
+        setSyncStatus('⚠️ API недоступен');
+        return;
+      }
+
       const response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
       if (response && response.settings) {
         const apiUrl = response.settings.apiUrl || 'https://lms-mai-api.iljakir-06.workers.dev';

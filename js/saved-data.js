@@ -192,21 +192,48 @@ function exportData() {
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     // Поиск
-    document.getElementById('search-box').addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
-        if (query === '') {
-            displayData(allData);
-            return;
-        }
+    const searchBox = document.getElementById('search-box');
+    if (searchBox) {
+        searchBox.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (query === '') {
+                displayData(allData);
+                return;
+            }
 
-        const filtered = allData.filter(item => {
-            const questionText = (item.questionText || '').toLowerCase();
-            const answerText = formatAnswer(item.answer).toLowerCase();
-            return questionText.includes(query) || answerText.includes(query);
+            const filtered = allData.filter(item => {
+                const questionText = (item.questionText || '').toLowerCase();
+                const answerText = formatAnswer(item.answer).toLowerCase();
+                return questionText.includes(query) || answerText.includes(query);
+            });
+
+            displayData(filtered);
         });
+    }
 
-        displayData(filtered);
-    });
+    // Кнопка обновления
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadData();
+        });
+    }
+
+    // Кнопка экспорта
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            exportData();
+        });
+    }
+
+    // Кнопка очистки всех данных
+    const clearAllBtn = document.getElementById('clear-all-btn');
+    if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', () => {
+            clearAllData();
+        });
+    }
 
     // Загружаем данные при загрузке страницы
     loadData();

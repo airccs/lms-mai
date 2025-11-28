@@ -785,11 +785,14 @@
             button.innerHTML = '⏳ Ищу ответ...';
             button.style.opacity = '0.7';
 
+            const methods = [];
             try {
-                // Метод 1: Проверяем сохраненный ответ
+                // Метод 1: Сохраненные ответы
+                console.log('[Method 1] Проверяю сохраненные ответы...');
                 if (question.savedAnswer) {
                     const saved = question.savedAnswer.answer;
                     if (this.applySavedAnswer(question, saved)) {
+                        methods.push('Сохраненные ответы');
                         this.showNotification('✅ Применен сохраненный ответ!', 'success');
                         button.innerHTML = '✅ Ответ применен';
                         button.style.background = '#4CAF50';
@@ -797,14 +800,16 @@
                         return;
                     }
                 }
+                console.log('[Method 1] Сохраненные ответы не найдены');
 
-                // Метод 2: Загружаем статистику с сервера, если доступна
+                // Метод 2: Статистика других пользователей
+                console.log('[Method 2] Загружаю статистику с сервера...');
                 await this.loadQuestionStatisticsFromServer(question);
 
-                // Метод 3: Ищем в статистике других пользователей
                 if (question.statistics) {
                     const popularAnswer = this.findMostPopularCorrectAnswer(question);
                     if (popularAnswer) {
+                        methods.push('Статистика других пользователей');
                         this.applyAnswer(question, popularAnswer);
                         this.showNotification('✅ Применен наиболее популярный правильный ответ!', 'success');
                         button.innerHTML = '✅ Ответ применен';
@@ -813,11 +818,14 @@
                         return;
                     }
                 }
+                console.log('[Method 2] Популярный ответ не найден в статистике');
 
-                // Метод 4: Ищем правильный ответ на странице
+                // Метод 3: Поиск на странице
+                console.log('[Method 3] Ищу правильный ответ на странице...');
                 const correctAnswer = this.findCorrectAnswerOnPage(question);
                 
                 if (correctAnswer) {
+                    methods.push('Поиск на странице');
                     this.applyAnswer(question, correctAnswer);
                     this.showNotification('✅ Правильный ответ найден и применен!', 'success');
                     button.innerHTML = '✅ Ответ найден';
@@ -825,11 +833,14 @@
                     this.solvingInProgress.delete(question.id);
                     return;
                 }
+                console.log('[Method 3] Правильный ответ на странице не найден');
 
-                // Метод 5: Используем эвристику для определения правильного ответа
+                // Метод 4: Эвристический анализ
+                console.log('[Method 4] Применяю эвристический анализ...');
                 const heuristicAnswer = this.findAnswerByHeuristics(question);
                 
                 if (heuristicAnswer) {
+                    methods.push('Эвристический анализ');
                     this.applyAnswer(question, heuristicAnswer);
                     this.showNotification('💡 Ответ определен по анализу (проверьте правильность)', 'info');
                     button.innerHTML = '💡 Ответ применен';
@@ -837,8 +848,11 @@
                     this.solvingInProgress.delete(question.id);
                     return;
                 }
+                console.log('[Method 4] Эвристический анализ не дал результата');
 
-                // Метод 6: Поиск через Google (открывает новую вкладку)
+                // Метод 5: Онлайн поиск
+                console.log('[Method 5] Открываю поиск в Google...');
+                methods.push('Онлайн поиск');
                 this.searchAnswerOnline(question);
                 this.showNotification('🔍 Открываю поиск ответа в Google. Проверьте результаты и заполните вручную.', 'info');
                 button.innerHTML = '🔍 Искать онлайн';
@@ -859,23 +873,54 @@
         }
 
         applySavedAnswer(question, savedAnswer) {
+            // Метод 1: Сохраненные ответы
+            // Использует ранее сохраненные правильные ответы
+            
             if (question.type === 'multichoice' || question.type === 'truefalse') {
+                // Сначала пытаемся найти по точному совпадению value
                 if (savedAnswer.value) {
                     const answer = question.answers.find(a => a.value === savedAnswer.value);
                     if (answer) {
                         this.applyAnswer(question, answer);
+                        console.log('[Method 1] Найден ответ по value:', savedAnswer.value);
+                        return true;
+                    }
+                }
+                
+                // Если не нашли по value, ищем по тексту (более гибкое сопоставление)
+                if (savedAnswer.text) {
+                    const normalizedSaved = savedAnswer.text.toLowerCase().trim();
+                    const answer = question.answers.find(a => {
+                        const normalizedAnswer = a.text.toLowerCase().trim();
+                        // Точное совпадение
+                        if (normalizedAnswer === normalizedSaved) return true;
+                        // Частичное совпадение (если сохраненный текст содержится в варианте)
+                        if (normalizedAnswer.includes(normalizedSaved) || 
+                            normalizedSaved.includes(normalizedAnswer)) return true;
+                        return false;
+                    });
+                    
+                    if (answer) {
+                        this.applyAnswer(question, answer);
+                        console.log('[Method 1] Найден ответ по тексту:', savedAnswer.text);
                         return true;
                     }
                 }
             } else if (question.type === 'shortanswer' || question.type === 'numerical') {
                 const input = question.answers[0]?.input;
                 if (input) {
-                    input.value = savedAnswer;
+                    // Для текстовых полей просто вставляем сохраненное значение
+                    const valueToSet = typeof savedAnswer === 'string' ? savedAnswer : 
+                                      (savedAnswer.text || savedAnswer.value || savedAnswer);
+                    input.value = valueToSet;
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     input.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('[Method 1] Применен сохраненный текстовый ответ:', valueToSet);
                     return true;
                 }
             }
+            
+            console.log('[Method 1] Не удалось применить сохраненный ответ');
             return false;
         }
 
@@ -937,96 +982,280 @@
         }
 
         findMostPopularCorrectAnswer(question) {
+            // Метод 2: Статистика других пользователей
+            // Показывает наиболее популярные правильные ответы
+            
             const stats = question.statistics;
-            if (!stats || !stats.answers) return null;
+            if (!stats || !stats.answers) {
+                console.log('[Method 2] Статистика отсутствует');
+                return null;
+            }
 
-            // Находим ответ с наибольшей популярностью среди правильных
-            let bestAnswer = null;
-            let maxCount = 0;
-
+            // Собираем все ответы с их популярностью
+            const answerCandidates = [];
+            
             for (const [answerKey, count] of Object.entries(stats.answers)) {
-                if (count > maxCount) {
-                    // Проверяем, можем ли мы найти этот ответ в вариантах
-                    try {
-                        const answerData = JSON.parse(answerKey);
-                        if (question.type === 'multichoice' || question.type === 'truefalse') {
-                            const found = question.answers.find(a => 
-                                a.value === answerData.value || a.text === answerData.text
-                            );
-                            if (found) {
-                                bestAnswer = found;
-                                maxCount = count;
+                try {
+                    const answerData = JSON.parse(answerKey);
+                    if (question.type === 'multichoice' || question.type === 'truefalse') {
+                        // Ищем ответ в вариантах вопроса
+                        const found = question.answers.find(a => {
+                            // Точное совпадение по value
+                            if (a.value === answerData.value) return true;
+                            // Совпадение по тексту
+                            if (answerData.text) {
+                                const normalizedAnswer = a.text.toLowerCase().trim();
+                                const normalizedSaved = answerData.text.toLowerCase().trim();
+                                if (normalizedAnswer === normalizedSaved) return true;
+                                // Частичное совпадение
+                                if (normalizedAnswer.includes(normalizedSaved) || 
+                                    normalizedSaved.includes(normalizedAnswer)) return true;
+                            }
+                            return false;
+                        });
+                        
+                        if (found) {
+                            answerCandidates.push({
+                                answer: found,
+                                count: count,
+                                answerData: answerData
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки парсинга
+                    console.warn('[Method 2] Ошибка парсинга ответа:', answerKey, e);
+                }
+            }
+
+            if (answerCandidates.length === 0) {
+                console.log('[Method 2] Не найдено подходящих ответов в статистике');
+                return null;
+            }
+
+            // Сортируем по популярности (количество использований)
+            answerCandidates.sort((a, b) => b.count - a.count);
+            
+            // Учитываем правильность ответов, если доступна информация
+            // Предпочитаем ответы, которые были правильными чаще
+            const bestCandidate = answerCandidates[0];
+            
+            // Проверяем, есть ли информация о правильности в статистике
+            if (stats.correctAttempts && stats.totalAttempts) {
+                const accuracy = stats.correctAttempts / stats.totalAttempts;
+                console.log(`[Method 2] Точность статистики: ${Math.round(accuracy * 100)}%`);
+            }
+            
+            console.log(`[Method 2] Найден наиболее популярный ответ: "${bestCandidate.answer.text}" (${bestCandidate.count} использований)`);
+            return bestCandidate.answer;
+        }
+
+        findCorrectAnswerOnPage(question) {
+            // Метод 3: Поиск на странице
+            // Ищет уже отмеченные правильные ответы
+            
+            if (question.type === 'multichoice' || question.type === 'truefalse') {
+                // Способ 1: Ищем ответы, помеченные как правильные в структуре вопроса
+                const correctAnswer = question.answers.find(a => a.correct);
+                if (correctAnswer) {
+                    console.log('[Method 3] Найден правильный ответ по флагу correct');
+                    return correctAnswer;
+                }
+
+                // Способ 2: Ищем в feedback или outcome блоках
+                const feedbackSelectors = [
+                    '.feedback', 
+                    '.outcome', 
+                    '.specificfeedback',
+                    '.generalfeedback',
+                    '.rightanswer',
+                    '.correctanswer',
+                    '[class*="correct"]',
+                    '[class*="right"]'
+                ];
+                
+                for (const selector of feedbackSelectors) {
+                    const feedback = question.element.querySelector(selector);
+                    if (feedback) {
+                        const feedbackText = feedback.innerText.toLowerCase();
+                        const feedbackHTML = feedback.innerHTML.toLowerCase();
+                        
+                        // Ищем упоминания правильности
+                        const correctnessKeywords = [
+                            'правильн', 'correct', 'верн', 'right', 
+                            'верный', 'верный ответ', 'правильный ответ'
+                        ];
+                        
+                        const isCorrectFeedback = correctnessKeywords.some(kw => 
+                            feedbackText.includes(kw) || feedbackHTML.includes(kw)
+                        );
+                        
+                        if (isCorrectFeedback) {
+                            // Ищем упоминание конкретного ответа
+                            for (const answer of question.answers) {
+                                const answerText = answer.text.toLowerCase().trim();
+                                // Проверяем, упоминается ли текст ответа в feedback
+                                if (answerText && (feedbackText.includes(answerText) || 
+                                    feedbackHTML.includes(answerText))) {
+                                    console.log('[Method 3] Найден правильный ответ в feedback:', answer.text);
+                                    return answer;
+                                }
                             }
                         }
-                    } catch (e) {
-                        // Игнорируем ошибки парсинга
+                    }
+                }
+
+                // Способ 3: Ищем визуальные индикаторы правильности (зеленый цвет, галочки)
+                for (const answer of question.answers) {
+                    if (answer.label) {
+                        const styles = window.getComputedStyle(answer.label);
+                        const color = styles.color;
+                        const bgColor = styles.backgroundColor;
+                        
+                        // Проверяем зеленый цвет (индикатор правильности)
+                        if (color.includes('rgb(40, 167, 69)') || 
+                            color.includes('rgb(76, 175, 80)') ||
+                            color.includes('green') ||
+                            bgColor.includes('rgb(40, 167, 69)') ||
+                            bgColor.includes('rgb(76, 175, 80)')) {
+                            console.log('[Method 3] Найден правильный ответ по цвету');
+                            return answer;
+                        }
+                        
+                        // Проверяем наличие галочек или других индикаторов
+                        if (answer.label.querySelector('.fa-check, .icon-check, [class*="check"]')) {
+                            console.log('[Method 3] Найден правильный ответ по иконке');
+                            return answer;
+                        }
+                    }
+                }
+
+                // Способ 4: Ищем в скрытых полях или атрибутах
+                const hiddenInputs = question.element.querySelectorAll('input[type="hidden"]');
+                for (const input of hiddenInputs) {
+                    if (input.name && input.name.includes('correct') && input.value) {
+                        const matchingAnswer = question.answers.find(a => 
+                            a.value === input.value || a.text.includes(input.value)
+                        );
+                        if (matchingAnswer) {
+                            console.log('[Method 3] Найден правильный ответ в скрытом поле');
+                            return matchingAnswer;
+                        }
                     }
                 }
             }
 
-            return bestAnswer;
-        }
-
-        findCorrectAnswerOnPage(question) {
-            if (question.type === 'multichoice' || question.type === 'truefalse') {
-                // Ищем ответы, помеченные как правильные
-                const correctAnswer = question.answers.find(a => a.correct);
-                if (correctAnswer) {
-                    return correctAnswer;
-                }
-
-                // Ищем в feedback или outcome блоках
-                const feedback = question.element.querySelector('.feedback, .outcome, .specificfeedback');
-                if (feedback) {
-                    const feedbackText = feedback.innerText.toLowerCase();
-                    return question.answers.find(a => {
-                        const answerText = a.text.toLowerCase();
-                        return feedbackText.includes(answerText) && 
-                               (feedbackText.includes('правильн') || 
-                                feedbackText.includes('correct') ||
-                                feedbackText.includes('верн'));
-                    });
-                }
-            }
-
+            console.log('[Method 3] Правильный ответ на странице не найден');
             return null;
         }
 
         findAnswerByHeuristics(question) {
+            // Метод 4: Эвристический анализ
+            // Анализирует варианты ответов и выбирает наиболее вероятный
+            
             if (question.type === 'multichoice' || question.type === 'truefalse') {
-                // Эвристика 1: Самый длинный ответ часто правильный
-                const longestAnswer = question.answers.reduce((a, b) => 
-                    a.text.length > b.text.length ? a : b
-                );
+                const answers = question.answers;
+                if (answers.length === 0) return null;
 
-                // Эвристика 2: Ответы с определенными словами
-                const keywords = ['все', 'все вышеперечисленное', 'all of the above', 'правильн', 'correct'];
-                const keywordAnswer = question.answers.find(a => 
-                    keywords.some(kw => a.text.toLowerCase().includes(kw))
-                );
-
-                if (keywordAnswer) return keywordAnswer;
-
-                // Эвристика 3: Для True/False - обычно True более вероятен
-                if (question.type === 'truefalse') {
-                    const trueAnswer = question.answers.find(a => 
-                        a.text.toLowerCase().includes('true') || 
-                        a.text.toLowerCase().includes('да') ||
-                        a.text.toLowerCase().includes('верно')
-                    );
-                    if (trueAnswer) return trueAnswer;
+                // Эвристика 1: Ответы с ключевыми словами "все", "все вышеперечисленное"
+                const inclusiveKeywords = [
+                    'все', 'все вышеперечисленное', 'all of the above', 
+                    'все перечисленное', 'все варианты', 'все ответы',
+                    'правильны все', 'all are correct'
+                ];
+                const inclusiveAnswer = answers.find(a => {
+                    const text = a.text.toLowerCase();
+                    return inclusiveKeywords.some(kw => text.includes(kw));
+                });
+                if (inclusiveAnswer) {
+                    console.log('[Method 4] Эвристика: найден ответ с ключевым словом "все"');
+                    return inclusiveAnswer;
                 }
 
-                // Эвристика 4: Ответ с наибольшим количеством деталей
-                return longestAnswer;
+                // Эвристика 2: Для True/False - обычно True более вероятен
+                if (question.type === 'truefalse') {
+                    const trueKeywords = ['true', 'да', 'верно', 'правильно', 'истина'];
+                    const trueAnswer = answers.find(a => {
+                        const text = a.text.toLowerCase().trim();
+                        return trueKeywords.some(kw => text === kw || text.includes(kw));
+                    });
+                    if (trueAnswer) {
+                        console.log('[Method 4] Эвристика: для True/False выбран True');
+                        return trueAnswer;
+                    }
+                }
+
+                // Эвристика 3: Самый длинный ответ часто правильный (больше деталей)
+                const longestAnswer = answers.reduce((a, b) => 
+                    a.text.length > b.text.length ? a : b
+                );
+                
+                // Но проверяем, не слишком ли он длинный (может быть отвлекающим)
+                const avgLength = answers.reduce((sum, a) => sum + a.text.length, 0) / answers.length;
+                if (longestAnswer.text.length > avgLength * 1.5) {
+                    console.log('[Method 4] Эвристика: выбран самый длинный ответ (детальный)');
+                    return longestAnswer;
+                }
+
+                // Эвристика 4: Ответ с наибольшим количеством слов (более детальный)
+                const mostWordsAnswer = answers.reduce((a, b) => {
+                    const aWords = a.text.split(/\s+/).length;
+                    const bWords = b.text.split(/\s+/).length;
+                    return aWords > bWords ? a : b;
+                });
+                console.log('[Method 4] Эвристика: выбран ответ с наибольшим количеством слов');
+                return mostWordsAnswer;
+
+                // Эвристика 5: Избегаем ответов с отрицаниями ("не", "никогда", "нет")
+                // (не применяем, так как это может быть неправильно)
             }
 
+            console.log('[Method 4] Эвристический анализ не дал результата');
             return null;
         }
 
         searchAnswerOnline(question) {
-            const searchQuery = encodeURIComponent(question.text.substring(0, 200));
-            const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
+            // Метод 5: Онлайн поиск
+            // Открывает Google для поиска ответа
+            
+            // Формируем умный поисковый запрос
+            let searchQuery = question.text;
+            
+            // Очищаем вопрос от лишних символов и форматирования
+            searchQuery = searchQuery
+                .replace(/\s+/g, ' ') // Убираем множественные пробелы
+                .replace(/[^\w\s\?\.]/g, ' ') // Убираем спецсимволы, оставляем буквы, цифры, пробелы, знаки вопроса и точки
+                .trim();
+            
+            // Ограничиваем длину запроса (Google имеет лимит)
+            if (searchQuery.length > 200) {
+                // Берем первые слова до 200 символов
+                searchQuery = searchQuery.substring(0, 200);
+                const lastSpace = searchQuery.lastIndexOf(' ');
+                if (lastSpace > 0) {
+                    searchQuery = searchQuery.substring(0, lastSpace);
+                }
+            }
+            
+            // Добавляем контекст для лучшего поиска
+            // Если есть варианты ответов, добавляем их к запросу
+            if (question.type === 'multichoice' && question.answers.length > 0) {
+                const answerTexts = question.answers
+                    .slice(0, 3) // Берем первые 3 варианта
+                    .map(a => a.text.trim())
+                    .filter(t => t.length > 0 && t.length < 50) // Фильтруем слишком длинные
+                    .join(' OR ');
+                
+                if (answerTexts) {
+                    searchQuery += ' ' + answerTexts;
+                }
+            }
+            
+            // Кодируем для URL
+            const encodedQuery = encodeURIComponent(searchQuery);
+            const googleUrl = `https://www.google.com/search?q=${encodedQuery}`;
+            
+            console.log('[Method 5] Открываю поиск в Google:', searchQuery);
             window.open(googleUrl, '_blank');
         }
 

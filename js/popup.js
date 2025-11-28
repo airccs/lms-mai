@@ -63,7 +63,8 @@ function setupApiSettings() {
 async function checkApiConnection(apiUrl) {
     const statusEl = document.getElementById('api-status');
     statusEl.textContent = '⏳ Проверка соединения...';
-    statusEl.style.color = '#666';
+    statusEl.style.color = '#718096';
+    statusEl.style.background = 'rgba(255, 255, 255, 0.7)';
 
     try {
         const response = await fetch(`${apiUrl}/api/health`, {
@@ -73,13 +74,16 @@ async function checkApiConnection(apiUrl) {
 
         if (response.ok) {
             statusEl.textContent = '✅ Соединение установлено';
-            statusEl.style.color = '#4CAF50';
+            statusEl.style.color = '#22c55e';
+            statusEl.style.background = 'rgba(34, 197, 94, 0.1)';
         } else {
             statusEl.textContent = '⚠️ Сервер недоступен';
-            statusEl.style.color = '#FF9800';
+            statusEl.style.color = '#f59e0b';
+            statusEl.style.background = 'rgba(245, 158, 11, 0.1)';
         }
     } catch (e) {
         statusEl.textContent = '❌ Не удалось подключиться к серверу';
-        statusEl.style.color = '#f44336';
+        statusEl.style.color = '#ef4444';
+        statusEl.style.background = 'rgba(239, 68, 68, 0.1)';
     }
 }

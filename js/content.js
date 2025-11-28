@@ -736,24 +736,38 @@
                 qtext = element.querySelector('.questiontext, .question-text, [class*="question"]');
             }
             
-            // Если все еще не нашли, берем весь элемент вопроса
+            // Если все еще не нашли, берем весь элемент вопроса, но исключаем ответы
             if (!qtext) {
-                qtext = element;
+                qtext = element.cloneNode(true);
+                // Убираем блоки с ответами
+                qtext.querySelectorAll('.answer, .ablock, .formulation, input[type="radio"], input[type="checkbox"]').forEach(el => {
+                    const parent = el.closest('.answer, .ablock, .formulation, label');
+                    if (parent) parent.remove();
+                });
+            } else {
+                qtext = qtext.cloneNode(true);
             }
             
             if (qtext) {
                 // Убираем скрытые элементы
-                const clone = qtext.cloneNode(true);
-                clone.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
+                qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
                 
                 // Убираем скрипты и стили
-                clone.querySelectorAll('script, style').forEach(el => el.remove());
+                qtext.querySelectorAll('script, style').forEach(el => el.remove());
                 
-                // Убираем кнопки и элементы управления
-                clone.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, button').forEach(el => el.remove());
+                // Убираем кнопки и элементы управления расширения
+                qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
+                
+                // Убираем блоки с ответами и вариантами
+                qtext.querySelectorAll('.answer, .ablock, .formulation').forEach(el => {
+                    // Проверяем, не является ли это частью вопроса
+                    if (el.querySelector('input[type="radio"], input[type="checkbox"]')) {
+                        el.remove();
+                    }
+                });
                 
                 // Получаем текст - используем textContent для сохранения всех данных
-                let text = clone.textContent || clone.innerText || '';
+                let text = qtext.textContent || qtext.innerText || '';
                 
                 // Обрабатываем LaTeX команды - заменяем на читаемый текст
                 text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
@@ -775,6 +789,8 @@
                 
                 // Убираем пустые строки
                 text = text.replace(/\n\s*\n/g, '\n');
+                
+                console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));
                 
                 return text;
             }

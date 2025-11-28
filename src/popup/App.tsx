@@ -26,33 +26,59 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Используем setTimeout для асинхронной загрузки после монтирования
+    let mounted = true;
     const timer = setTimeout(() => {
+      if (!mounted) return;
+      
       try {
         loadStatistics().catch(err => {
-          console.error('Failed to load statistics:', err);
+          if (mounted) {
+            console.error('Failed to load statistics:', err);
+            setStats({ saved: 0, total: 0, attempts: 0 });
+          }
         });
         loadApiSettings().catch(err => {
-          console.error('Failed to load API settings:', err);
+          if (mounted) {
+            console.error('Failed to load API settings:', err);
+            setSyncStatus('❌ Ошибка подключения');
+          }
         });
       } catch (err) {
-        console.error('Error in useEffect:', err);
+        if (mounted) {
+          console.error('Error in useEffect:', err);
+        }
       }
-    }, 0);
+    }, 100);
     
-    return () => clearTimeout(timer);
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, []);
 
   const loadStatistics = async function loadStatistics() {
     try {
       // Проверяем доступность Chrome API
-      if (typeof window === 'undefined' || typeof chrome === 'undefined') {
-        console.warn('Chrome API not available - window or chrome is undefined');
+      if (typeof window === 'undefined') {
+        console.warn('[loadStatistics] window is undefined');
         setStats({ saved: 0, total: 0, attempts: 0 });
         return;
       }
 
-      if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
-        console.warn('Chrome storage API not available');
+      if (typeof chrome === 'undefined') {
+        console.warn('[loadStatistics] chrome is undefined');
+        setStats({ saved: 0, total: 0, attempts: 0 });
+        return;
+      }
+
+      if (!chrome.storage) {
+        console.warn('[loadStatistics] chrome.storage is not available');
+        setStats({ saved: 0, total: 0, attempts: 0 });
+        return;
+      }
+
+      if (!chrome.storage.local || !chrome.storage.sync) {
+        console.warn('[loadStatistics] chrome.storage.local or sync is not available');
         setStats({ saved: 0, total: 0, attempts: 0 });
         return;
       }
@@ -60,32 +86,35 @@ const App: React.FC = () => {
       // Загружаем сохраненные ответы
       let localData: Record<string, any> = {};
       try {
-        localData = await chrome.storage.local.get(null) || {};
+        const result = await chrome.storage.local.get(null);
+        localData = result || {};
       } catch (err) {
-        console.warn('Error reading local storage:', err);
+        console.warn('[loadStatistics] Error reading local storage:', err);
         localData = {};
       }
 
       let savedCount = 0;
-      if (localData && typeof localData === 'object') {
+      if (localData && typeof localData === 'object' && localData !== null) {
         try {
           const keys = Object.keys(localData);
-          for (const key of keys) {
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
             if (key && typeof key === 'string' && key.startsWith('answer_')) {
               savedCount++;
             }
           }
         } catch (err) {
-          console.warn('Error counting saved answers:', err);
+          console.warn('[loadStatistics] Error counting saved answers:', err);
         }
       }
 
       // Загружаем статистику из sync storage
       let syncData: any = {};
       try {
-        syncData = await chrome.storage.sync.get(['questionStats']) || {};
+        const result = await chrome.storage.sync.get(['questionStats']);
+        syncData = result || {};
       } catch (err) {
-        console.warn('Error reading sync storage:', err);
+        console.warn('[loadStatistics] Error reading sync storage:', err);
         syncData = {};
       }
 
@@ -95,7 +124,7 @@ const App: React.FC = () => {
         try {
           questionCount = Object.keys(questionStats).length;
         } catch (err) {
-          console.warn('Error counting questions:', err);
+          console.warn('[loadStatistics] Error counting questions:', err);
         }
       }
 
@@ -104,16 +133,19 @@ const App: React.FC = () => {
       if (typeof questionStats === 'object' && questionStats !== null) {
         try {
           const values = Object.values(questionStats);
-          for (const stats of values) {
-            if (typeof stats === 'object' && stats !== null && 'totalAttempts' in stats) {
-              const attempts = (stats as any).totalAttempts;
-              if (typeof attempts === 'number' && !isNaN(attempts) && attempts >= 0) {
-                totalAttempts += attempts;
+          for (let i = 0; i < values.length; i++) {
+            const stats = values[i];
+            if (typeof stats === 'object' && stats !== null && stats !== undefined) {
+              if ('totalAttempts' in stats) {
+                const attempts = (stats as any).totalAttempts;
+                if (typeof attempts === 'number' && !isNaN(attempts) && isFinite(attempts) && attempts >= 0) {
+                  totalAttempts += attempts;
+                }
               }
             }
           }
         } catch (err) {
-          console.warn('Error calculating total attempts:', err);
+          console.warn('[loadStatistics] Error calculating total attempts:', err);
         }
       }
 
@@ -123,7 +155,7 @@ const App: React.FC = () => {
         attempts: totalAttempts
       });
     } catch (e) {
-      console.error('Error loading statistics:', e);
+      console.error('[loadStatistics] Unexpected error:', e);
       // Устанавливаем значения по умолчанию при ошибке
       setStats({
         saved: 0,

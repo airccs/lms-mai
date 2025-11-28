@@ -63,7 +63,7 @@ function displayData(data) {
             Math.round((stats.correctAttempts / stats.totalAttempts) * 100) : null;
 
         return `
-            <div class="data-item">
+            <div class="data-item" data-hash="${escapeHtml(item.hash)}">
                 <div class="data-item-header">
                     <div>
                         <div class="data-item-title">Вопрос #${index + 1}</div>
@@ -84,10 +84,20 @@ function displayData(data) {
                     <strong>Ответ:</strong><br>
                     ${escapeHtml(answerText)}
                 </div>
-                <button class="delete-btn" onclick="deleteItem('${item.hash}')">Удалить</button>
+                <button class="delete-btn" data-action="delete" data-hash="${escapeHtml(item.hash)}">Удалить</button>
             </div>
         `;
     }).join('');
+    
+    // Добавляем обработчики событий после вставки HTML
+    dataList.querySelectorAll('.delete-btn[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const hash = e.target.getAttribute('data-hash');
+            if (hash) {
+                deleteItem(hash);
+            }
+        });
+    });
 }
 
 function formatAnswer(answer) {

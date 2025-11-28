@@ -333,7 +333,7 @@
 
         extractUserAnswerFromReview(element, question) {
             if (question.type === 'multichoice' || question.type === 'truefalse') {
-                // Способ 1: Ищем выбранный ответ в review
+                // Способ 1: Ищем выбранный ответ в review (приоритет - checked input)
                 const selected = element.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
                 if (selected) {
                     const label = element.querySelector(`label[for="${selected.id}"]`) || 
@@ -345,6 +345,8 @@
                         text = text.replace(selected.value, '').trim();
                         // Убираем маркеры правильности (✓, ✗ и т.д.)
                         text = text.replace(/[✓✗✔✘]/g, '').trim();
+                        // Убираем лишние пробелы
+                        text = text.replace(/\s+/g, ' ').trim();
                         return {
                             value: selected.value,
                             text: text
@@ -352,38 +354,62 @@
                     }
                 }
 
-                // Способ 2: Ищем в тексте ответа, который выделен как правильный/неправильный
+                // Способ 2: Ищем в тексте "Ваш ответ:" или "Your answer:" (более надежно)
+                const answerText = element.innerText || element.textContent;
+                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ|Выбранный ответ):\s*([a-z]\.?\s*[^\n]+)/i);
+                if (answerMatch) {
+                    const answerStr = answerMatch[1].trim();
+                    // Извлекаем букву варианта и значение
+                    const variantMatch = answerStr.match(/^([a-e])\.?\s*(.+)$/i);
+                    if (variantMatch) {
+                        const variant = variantMatch[1].toLowerCase();
+                        const answerValue = variantMatch[2].trim();
+                        
+                        // Пытаемся найти соответствующий вариант в question.answers
+                        for (const answer of question.answers || []) {
+                            if (answer.value === variant || answer.value.toLowerCase() === variant) {
+                                return {
+                                    value: answer.value,
+                                    text: answerValue || answer.text || answer.value
+                                };
+                            }
+                        }
+                        
+                        // Если не нашли, возвращаем то что извлекли
+                        return {
+                            value: variant,
+                            text: answerValue
+                        };
+                    }
+                }
+
+                // Способ 3: Ищем в тексте ответа, который выделен как выбранный (не правильный!)
                 const answerLabels = element.querySelectorAll('label, .answer, .option');
                 for (const label of answerLabels) {
-                    const isSelected = label.querySelector('input:checked') !== null ||
-                                     label.classList.contains('selected') ||
-                                     label.classList.contains('answered');
+                    // Приоритет: checked input, затем selected/answered классы
+                    const input = label.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
+                    if (input) {
+                        let text = label.innerText || label.textContent;
+                        text = text.replace(input.value, '').trim();
+                        text = text.replace(/[✓✗✔✘]/g, '').trim();
+                        text = text.replace(/\s+/g, ' ').trim();
+                        return {
+                            value: input.value,
+                            text: text
+                        };
+                    }
                     
-                    if (isSelected || label.classList.contains('correct') || label.classList.contains('incorrect')) {
+                    // Если нет checked, но есть класс selected/answered (не correct!)
+                    if (label.classList.contains('selected') || label.classList.contains('answered')) {
                         const input = label.querySelector('input[type="radio"], input[type="checkbox"]');
                         if (input) {
                             let text = label.innerText || label.textContent;
                             text = text.replace(input.value, '').trim();
                             text = text.replace(/[✓✗✔✘]/g, '').trim();
+                            text = text.replace(/\s+/g, ' ').trim();
                             return {
                                 value: input.value,
                                 text: text
-                            };
-                        }
-                    }
-                }
-
-                // Способ 3: Ищем в тексте "Ваш ответ:" или "Your answer:"
-                const answerText = element.innerText || element.textContent;
-                const answerMatch = answerText.match(/(?:Ваш ответ|Your answer|Ответ):\s*([a-z]\.?\s*[^\n]+)/i);
-                if (answerMatch) {
-                    const answerStr = answerMatch[1].trim();
-                    // Пытаемся найти соответствующий вариант
-                    for (const answer of question.answers || []) {
-                        if (answer.text && answerStr.includes(answer.text.substring(0, 20))) {
-                            return {
-                                value: answer.value,
-                                text: answer.text
                             };
                         }
                     }
@@ -392,7 +418,7 @@
                 // Ищем в input или в тексте
                 const input = element.querySelector('input[type="text"], input[type="number"]');
                 if (input && input.value) {
-                    return input.value;
+                    return input.value.trim();
                 }
                 
                 // Ищем в тексте "Ваш ответ:"
@@ -665,7 +691,33 @@
                 // Убираем скрытые элементы
                 const clone = qtext.cloneNode(true);
                 clone.querySelectorAll('.accesshide').forEach(el => el.remove());
-                return clone.innerText.trim();
+                
+                // Убираем скрипты и стили
+                clone.querySelectorAll('script, style').forEach(el => el.remove());
+                
+                let text = clone.innerText || clone.textContent || '';
+                
+                // Очищаем текст от дубликатов (например, "m=1 m=1" -> "m=1")
+                text = text.replace(/\b(\w+=\d+)\s+\1\b/g, '$1');
+                text = text.replace(/\b(\w+=\d+\.\d+)\s+\1\b/g, '$1');
+                
+                // Обрабатываем LaTeX команды - заменяем на читаемый текст
+                text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
+                text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1'); // Убираем другие LaTeX команды
+                
+                // Убираем множественные пробелы
+                text = text.replace(/\s+/g, ' ');
+                
+                // Убираем пробелы вокруг знаков равенства и математических операторов
+                text = text.replace(/\s*=\s*/g, '=');
+                text = text.replace(/\s*\+\s*/g, '+');
+                text = text.replace(/\s*-\s*/g, '-');
+                
+                // Восстанавливаем пробелы после знаков равенства для читаемости
+                text = text.replace(/([a-zA-Z])=([0-9])/g, '$1 = $2');
+                text = text.replace(/([0-9])=([a-zA-Z])/g, '$1 = $2');
+                
+                return text.trim();
             }
             return null;
         }

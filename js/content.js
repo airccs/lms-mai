@@ -728,33 +728,55 @@
         }
 
         extractQuestionText(element) {
-            const qtext = element.querySelector('.qtext');
+            // Пытаемся найти текст вопроса в разных местах
+            let qtext = element.querySelector('.qtext');
+            
+            // Если не нашли .qtext, ищем в других местах
+            if (!qtext) {
+                qtext = element.querySelector('.questiontext, .question-text, [class*="question"]');
+            }
+            
+            // Если все еще не нашли, берем весь элемент вопроса
+            if (!qtext) {
+                qtext = element;
+            }
+            
             if (qtext) {
                 // Убираем скрытые элементы
                 const clone = qtext.cloneNode(true);
-                clone.querySelectorAll('.accesshide').forEach(el => el.remove());
+                clone.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
                 
                 // Убираем скрипты и стили
                 clone.querySelectorAll('script, style').forEach(el => el.remove());
                 
-                let text = clone.innerText || clone.textContent || '';
+                // Убираем кнопки и элементы управления
+                clone.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, button').forEach(el => el.remove());
+                
+                // Получаем текст - используем textContent для сохранения всех данных
+                let text = clone.textContent || clone.innerText || '';
                 
                 // Обрабатываем LaTeX команды - заменяем на читаемый текст
                 text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
                 text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1'); // Убираем другие LaTeX команды
                 
-                // Убираем только точные дубликаты (когда два одинаковых значения подряд)
-                // Например: "m=1 m=1" -> "m=1", но НЕ трогаем "m=1 кг" и "m=1 кг" если они в разных местах
-                text = text.replace(/\b([a-zA-Zа-яА-Я]+=\d+(?:\.\d+)?(?:\s+[а-яА-Я]+)?)\s+\1\b/g, '$1');
+                // Убираем только точные дубликаты подряд (например, "m=1 m=1" -> "m=1")
+                // НО только если они идут друг за другом с пробелом
+                text = text.replace(/\b([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)\s+([а-яА-Я]+)?\s+\1\s*=\s*\2(?:\s+\3)?\b/g, '$1 = $2 $3');
                 
                 // Убираем множественные пробелы (но сохраняем одиночные)
                 text = text.replace(/\s{2,}/g, ' ');
                 
                 // Нормализуем пробелы вокруг знаков равенства (добавляем пробелы для читаемости)
-                text = text.replace(/([a-zA-Zа-яА-Я])\s*=\s*([0-9])/g, '$1 = $2');
-                text = text.replace(/([0-9])\s*=\s*([a-zA-Zа-яА-Я])/g, '$1 = $2');
+                text = text.replace(/([a-zA-Zа-яА-Я])\s*=\s*(\d+(?:\.\d+)?)/g, '$1 = $2');
+                text = text.replace(/(\d+(?:\.\d+)?)\s*=\s*([a-zA-Zа-яА-Я])/g, '$1 = $2');
                 
-                return text.trim();
+                // Убираем пробелы в начале и конце строк
+                text = text.trim();
+                
+                // Убираем пустые строки
+                text = text.replace(/\n\s*\n/g, '\n');
+                
+                return text;
             }
             return null;
         }

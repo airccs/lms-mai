@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build",
+    "build": "vite build && npm run fix-html",
+    "fix-html": "node -e \"const fs = require('fs'); const path = require('path'); if (fs.existsSync('html/src/popup/index.html')) { fs.mkdirSync('html', { recursive: true }); fs.renameSync('html/src/popup/index.html', 'html/popup.html'); fs.rmSync('html/src', { recursive: true, force: true }); }\"",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -766,16 +766,46 @@
                     let found = false;
                     
                     // Проверяем несколько уровней вверх
-                    for (let level = 0; level < 3 && parent && !found; level++) {
-                        const parentText = parent.textContent || '';
+                    for (let level = 0; level < 5 && parent && !found; level++) {
+                        // Получаем текст родителя, включая все дочерние элементы
+                        let parentText = '';
+                        
+                        // Сначала пробуем получить текст из клона, чтобы сохранить структуру
+                        const parentClone = parent.cloneNode(true);
+                        parentClone.querySelectorAll('script, style').forEach(el => el.remove());
+                        
+                        // Обрабатываем sup/sub в клоне
+                        parentClone.querySelectorAll('sup').forEach(supEl => {
+                            const supText = supEl.textContent || '';
+                            if (supText) {
+                                const textNode = document.createTextNode(supText);
+                                supEl.parentNode.replaceChild(textNode, supEl);
+                            } else {
+                                supEl.remove();
+                            }
+                        });
+                        
+                        parentClone.querySelectorAll('sub').forEach(subEl => {
+                            const subText = subEl.textContent || '';
+                            if (subText) {
+                                const textNode = document.createTextNode(subText);
+                                subEl.parentNode.replaceChild(textNode, subEl);
+                            } else {
+                                subEl.remove();
+                            }
+                        });
+                        
+                        parentText = parentClone.textContent || parentClone.innerText || '';
+                        
                         // Ищем параметр в формате "переменная = значение" рядом с nolink
-                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
+                        // Улучшенный паттерн: учитываем переменные с цифрами (m2, m1, t3 и т.д.)
+                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*(\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
                         if (paramMatch) {
                             const key = paramMatch[1];
                             const value = paramMatch[2];
                             const full = key + ' = ' + value;
                             // Проверяем, не добавили ли мы уже этот параметр
-                            if (!params.some(p => p.full === full)) {
+                            if (!params.some(p => p.full === full && p.nolinkEl === nolinkEl)) {
                                 params.push({ key, value, full, nolinkEl });
                             }
                             found = true;
@@ -891,7 +921,7 @@
                 });
                 
                 // Ищем MathJax элементы и извлекаем их текст ПЕРЕД получением основного текста
-                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"]');
+                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"], mjx-container, mjx-math');
                 mathElements.forEach(mathEl => {
                     // Пытаемся извлечь текст из различных источников
                     let mathText = mathEl.getAttribute('alttext') || 
@@ -901,15 +931,39 @@
                     
                     // Если не нашли в атрибутах, пытаемся извлечь из содержимого
                     if (!mathText) {
-                        // Проверяем все дочерние элементы, включая sup/sub
+                        // Создаем клон и обрабатываем все дочерние элементы, включая sup/sub
                         const clone = mathEl.cloneNode(true);
                         clone.querySelectorAll('script, style').forEach(el => el.remove());
+                        
+                        // Обрабатываем sup/sub в клоне перед извлечением текста
+                        clone.querySelectorAll('sup').forEach(supEl => {
+                            const supText = supEl.textContent || '';
+                            if (supText) {
+                                const replacement = supText.match(/^\d+$/) ? supText : supText;
+                                const textNode = document.createTextNode(replacement);
+                                supEl.parentNode.replaceChild(textNode, supEl);
+                            } else {
+                                supEl.remove();
+                            }
+                        });
+                        
+                        clone.querySelectorAll('sub').forEach(subEl => {
+                            const subText = subEl.textContent || '';
+                            if (subText) {
+                                const replacement = subText.match(/^\d+$/) ? subText : subText;
+                                const textNode = document.createTextNode(replacement);
+                                subEl.parentNode.replaceChild(textNode, subEl);
+                            } else {
+                                subEl.remove();
+                            }
+                        });
+                        
                         mathText = clone.textContent || clone.innerText || '';
                     }
                     
                     // Если нашли текст, заменяем MathJax элемент на текст
                     if (mathText) {
-                        const textNode = document.createTextNode(' ' + mathText + ' ');
+                        const textNode = document.createTextNode(' ' + mathText.trim() + ' ');
                         mathEl.parentNode.replaceChild(textNode, mathEl);
                     } else {
                         // Если не нашли, просто удаляем

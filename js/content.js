@@ -963,7 +963,21 @@
                     
                     // Пытаемся найти полный параметр в тексте .nolink (например, "m=1" или "a=14" или "R=-0.1v")
                     // Улучшенный паттерн: поддерживает значения с переменными (например, "-0.1v")
-                    const fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                    // ВАЖНО: используем более гибкий паттерн, который работает с разными символами равенства и без пробелов
+                    // Сначала пробуем с пробелами, потом без пробелов
+                    let fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                    
+                    // Если не нашли с пробелами, пробуем без пробелов (на случай если символ = не стандартный или нет пробелов)
+                    if (!fullParamInNolink) {
+                        // Пробуем более простой паттерн без требований к пробелам
+                        const simpleMatch = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)=([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                        if (simpleMatch) {
+                            console.log(`[extractQuestionText] .nolink[${index}] найден параметр упрощенным паттерном:`, simpleMatch);
+                            // Создаем объект, похожий на результат match
+                            fullParamInNolink = simpleMatch;
+                        }
+                    }
+                    
                     console.log(`[extractQuestionText] .nolink[${index}] результат поиска полного параметра:`, fullParamInNolink);
                     if (fullParamInNolink) {
                         const key = fullParamInNolink[1];

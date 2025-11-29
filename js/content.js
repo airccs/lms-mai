@@ -754,22 +754,52 @@
                 const originalQtext = element.querySelector('.qtext') || 
                                       element.querySelector('.questiontext, .question-text, [class*="question"]') ||
                                       element;
-                const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
                 
-                // Извлекаем все параметры из исходного текста (уникальные)
+                // Извлекаем параметры из исходного DOM, включая те, что рядом с .nolink
+                const originalNolinks = originalQtext ? originalQtext.querySelectorAll('.nolink, span.nolink') : [];
+                const params = [];
+                
+                // Для каждого .nolink элемента ищем ближайший параметр в исходном DOM
+                originalNolinks.forEach(nolinkEl => {
+                    // Ищем параметр в родительском элементе
+                    let parent = nolinkEl.parentElement;
+                    let found = false;
+                    
+                    // Проверяем несколько уровней вверх
+                    for (let level = 0; level < 3 && parent && !found; level++) {
+                        const parentText = parent.textContent || '';
+                        // Ищем параметр в формате "переменная = значение" рядом с nolink
+                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
+                        if (paramMatch) {
+                            const key = paramMatch[1];
+                            const value = paramMatch[2];
+                            const full = key + ' = ' + value;
+                            // Проверяем, не добавили ли мы уже этот параметр
+                            if (!params.some(p => p.full === full)) {
+                                params.push({ key, value, full, nolinkEl });
+                            }
+                            found = true;
+                        }
+                        parent = parent.parentElement;
+                    }
+                });
+                
+                // Также извлекаем все параметры из исходного текста (на случай, если они не рядом с .nolink)
+                const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
                 const paramPattern = /([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/g;
-                const paramsMap = new Map(); // Используем Map для уникальности
+                const paramsMap = new Map();
                 let match;
                 while ((match = paramPattern.exec(originalText)) !== null) {
                     const key = match[1];
                     const value = match[2];
                     const full = key + ' = ' + value;
-                    // Сохраняем только уникальные параметры (ключ + значение)
-                    if (!paramsMap.has(full)) {
+                    // Сохраняем только уникальные параметры
+                    if (!paramsMap.has(full) && !params.some(p => p.full === full)) {
                         paramsMap.set(full, { key, value, full });
                     }
                 }
-                const params = Array.from(paramsMap.values()); // Преобразуем в массив
+                // Добавляем параметры, которые не были найдены рядом с .nolink
+                params.push(...Array.from(paramsMap.values()));
                 
                 // Убираем скрытые элементы
                 qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
@@ -780,12 +810,48 @@
                 // Убираем кнопки и элементы управления расширения
                 qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
                 
-                // Обрабатываем элементы .nolink - заменяем их на пробелы (не подставляем параметры)
-                // Параметры должны быть уже в тексте, мы просто убираем маркеры
-                qtext.querySelectorAll('.nolink, span.nolink').forEach((nolinkEl) => {
-                    // Просто заменяем на пробел, чтобы текст не склеивался
-                    const textNode = document.createTextNode(' ');
-                    nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                // Обрабатываем элементы .nolink - заменяем их на соответствующие параметры
+                const clonedNolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
+                clonedNolinks.forEach((nolinkEl, index) => {
+                    let value = '';
+                    
+                    // Пытаемся найти соответствующий параметр из исходного DOM
+                    const originalNolink = originalNolinks[index];
+                    if (originalNolink) {
+                        // Ищем параметр, который был связан с этим nolink
+                        const param = params.find(p => p.nolinkEl === originalNolink);
+                        if (param) {
+                            value = param.full;
+                        }
+                    }
+                    
+                    // Если не нашли по связи, пытаемся найти по позиции или контексту
+                    if (!value && params.length > 0) {
+                        // Используем параметр по индексу (если их количество совпадает)
+                        if (index < params.length && params[index].full) {
+                            value = params[index].full;
+                        } else {
+                            // Ищем параметр в контексте родительского элемента
+                            const parent = nolinkEl.parentElement;
+                            if (parent) {
+                                const context = parent.textContent || '';
+                                const contextMatch = context.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
+                                if (contextMatch) {
+                                    value = contextMatch[1] + ' = ' + contextMatch[2];
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Заменяем элемент на найденное значение или на пробел
+                    if (value) {
+                        const textNode = document.createTextNode(' ' + value + ' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    } else {
+                        // Если значение не найдено, заменяем на пробел
+                        const textNode = document.createTextNode(' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    }
                 });
                 
                 // Убираем блоки с ответами и вариантами

@@ -58,8 +58,17 @@
         }
 
         async processReviewPage() {
+            // Защита от повторных вызовов
+            if (this.isProcessingReview) {
+                console.log('[Review Scanner] Сканирование уже выполняется, пропускаем...');
+                return;
+            }
+            
+            this.isProcessingReview = true;
             console.log('[Review Scanner] Начинаю сканирование страницы результатов...');
-            const questionElements = document.querySelectorAll('.que');
+            
+            try {
+                const questionElements = document.querySelectorAll('.que');
             
             let totalQuestions = 0;
             let correctAnswers = 0;
@@ -197,11 +206,17 @@
             });
 
             rescanBtn.addEventListener('click', async () => {
+                if (this.isProcessingReview) {
+                    return; // Уже выполняется
+                }
                 rescanBtn.disabled = true;
                 rescanBtn.innerHTML = '⏳ Сканирование...';
-                await this.processReviewPage();
-                rescanBtn.disabled = false;
-                rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+                try {
+                    await this.processReviewPage();
+                } finally {
+                    rescanBtn.disabled = false;
+                    rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+                }
             });
 
             document.body.appendChild(rescanBtn);

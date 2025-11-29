@@ -775,25 +775,16 @@
                                       element;
                 
                 // Извлекаем параметры из исходного DOM, включая те, что рядом с .nolink
-                const originalNolinks = originalQtext ? originalQtext.querySelectorAll('.nolink, span.nolink') : [];
+                const originalNolinks = originalQtext ? Array.from(originalQtext.querySelectorAll('.nolink, span.nolink')) : [];
                 const params = [];
                 
-                // Для каждого .nolink элемента ищем ближайший параметр в исходном DOM
-                originalNolinks.forEach((nolinkEl, nolinkIndex) => {
-                    // Ищем параметр в тексте вокруг nolink элемента
-                    // Стратегия: ищем параметр в родительском элементе, но учитываем позицию nolink
-                    
-                    let parent = nolinkEl.parentElement;
-                    let found = false;
-                    
-                    // Получаем весь текст родителя до обработки
-                    const parentClone = parent ? parent.cloneNode(true) : null;
-                    if (!parentClone) return;
-                    
-                    parentClone.querySelectorAll('script, style').forEach(el => el.remove());
+                // Создаем клон всего текста вопроса для определения позиций
+                const fullTextClone = originalQtext ? originalQtext.cloneNode(true) : null;
+                if (fullTextClone) {
+                    fullTextClone.querySelectorAll('script, style').forEach(el => el.remove());
                     
                     // Обрабатываем sup/sub в клоне
-                    parentClone.querySelectorAll('sup').forEach(supEl => {
+                    fullTextClone.querySelectorAll('sup').forEach(supEl => {
                         const supText = supEl.textContent || '';
                         if (supText) {
                             const textNode = document.createTextNode(supText);
@@ -803,7 +794,7 @@
                         }
                     });
                     
-                    parentClone.querySelectorAll('sub').forEach(subEl => {
+                    fullTextClone.querySelectorAll('sub').forEach(subEl => {
                         const subText = subEl.textContent || '';
                         if (subText) {
                             const textNode = document.createTextNode(subText);
@@ -813,30 +804,13 @@
                         }
                     });
                     
-                    const parentText = parentClone.textContent || parentClone.innerText || '';
+                    const fullText = fullTextClone.textContent || fullTextClone.innerText || '';
                     
-                    // Находим позицию текущего nolink в тексте
-                    // ВАЖНО: Работаем только с клоном, не изменяем исходный DOM
-                    // Находим все nolink элементы в клоне и используем индекс для определения позиции
-                    const allNolinksInClone = Array.from(parentClone.querySelectorAll('.nolink, span.nolink'));
-                    const nolinkIndexInParent = Array.from(parent.querySelectorAll('.nolink, span.nolink')).indexOf(nolinkEl);
-                    let markerIndex = -1;
-                    
-                    if (nolinkIndexInParent >= 0 && nolinkIndexInParent < allNolinksInClone.length) {
-                        const nolinkClone = allNolinksInClone[nolinkIndexInParent];
-                        // Создаем временный маркер в клоне (не в исходном DOM!)
-                        const tempMarker = document.createTextNode('__NOLINK_MARKER__');
-                        nolinkClone.parentNode.insertBefore(tempMarker, nolinkClone);
-                        const markerText = parentClone.textContent || '';
-                        markerIndex = markerText.indexOf('__NOLINK_MARKER__');
-                        tempMarker.remove();
-                    }
-                    
-                    // Ищем все параметры в тексте родителя
+                    // Извлекаем все параметры из всего текста с их позициями
                     const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
                     const allParams = [];
                     let match;
-                    while ((match = paramPattern.exec(parentText)) !== null) {
+                    while ((match = paramPattern.exec(fullText)) !== null) {
                         const paramStart = match.index;
                         const paramEnd = paramStart + match[0].length;
                         const key = match[1];
@@ -852,47 +826,49 @@
                         });
                     }
                     
-                    // Находим параметр, который ближе всего к позиции nolink
-                    if (allParams.length > 0 && markerIndex >= 0) {
-                        // Сортируем параметры по расстоянию до маркера
-                        allParams.sort((a, b) => {
-                            const distA = Math.abs(a.start - markerIndex);
-                            const distB = Math.abs(b.start - markerIndex);
-                            return distA - distB;
-                        });
+                    // Для каждого .nolink элемента находим ближайший параметр ПЕРЕД ним
+                    originalNolinks.forEach((nolinkEl, nolinkIndex) => {
+                        // Находим позицию nolink в клоне
+                        const allNolinksInClone = Array.from(fullTextClone.querySelectorAll('.nolink, span.nolink'));
+                        const nolinkIndexInClone = Array.from(originalNolinks).indexOf(nolinkEl);
+                        let nolinkPosition = -1;
                         
-                        // Берем ближайший параметр, но только если он не слишком далеко (в пределах 200 символов)
-                        const closestParam = allParams[0];
-                        if (closestParam && Math.abs(closestParam.start - markerIndex) < 200) {
-                            // Проверяем, не добавили ли мы уже этот параметр для этого nolink
-                            if (!params.some(p => p.full === closestParam.full && p.nolinkEl === nolinkEl)) {
-                                params.push({ 
-                                    key: closestParam.key, 
-                                    value: closestParam.value, 
-                                    full: closestParam.full, 
-                                    nolinkEl,
-                                    index: nolinkIndex
-                                });
-                            }
-                            found = true;
+                        if (nolinkIndexInClone >= 0 && nolinkIndexInClone < allNolinksInClone.length) {
+                            const nolinkClone = allNolinksInClone[nolinkIndexInClone];
+                            // Создаем временный маркер в клоне
+                            const tempMarker = document.createTextNode('__NOLINK_MARKER__');
+                            nolinkClone.parentNode.insertBefore(tempMarker, nolinkClone);
+                            const markerText = fullTextClone.textContent || '';
+                            nolinkPosition = markerText.indexOf('__NOLINK_MARKER__');
+                            tempMarker.remove();
                         }
-                    }
-                    
-                    // Если не нашли по позиции, пробуем найти по контексту (старый метод)
-                    if (!found) {
-                        // Ищем параметр в формате "переменная = значение" рядом с nolink
-                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
-                        if (paramMatch) {
-                            const key = paramMatch[1];
-                            const value = paramMatch[2];
-                            const full = key + ' = ' + value;
-                            // Проверяем, не добавили ли мы уже этот параметр
-                            if (!params.some(p => p.full === full && p.nolinkEl === nolinkEl)) {
-                                params.push({ key, value, full, nolinkEl, index: nolinkIndex });
+                        
+                        // Находим параметр, который находится непосредственно ПЕРЕД этим nolink
+                        if (nolinkPosition >= 0 && allParams.length > 0) {
+                            // Фильтруем параметры, которые находятся перед nolink
+                            const paramsBefore = allParams.filter(p => p.end < nolinkPosition);
+                            
+                            if (paramsBefore.length > 0) {
+                                // Берем последний параметр перед nolink (самый близкий)
+                                const closestParam = paramsBefore[paramsBefore.length - 1];
+                                
+                                // Проверяем, что параметр не слишком далеко (в пределах 100 символов)
+                                if (closestParam && (nolinkPosition - closestParam.end) < 100) {
+                                    // Проверяем, не добавили ли мы уже этот параметр для этого nolink
+                                    if (!params.some(p => p.nolinkEl === nolinkEl)) {
+                                        params.push({ 
+                                            key: closestParam.key, 
+                                            value: closestParam.value, 
+                                            full: closestParam.full, 
+                                            nolinkEl,
+                                            index: nolinkIndex
+                                        });
+                                    }
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                }
                 
                 // Также извлекаем все параметры из исходного текста (на случай, если они не рядом с .nolink)
                 const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';

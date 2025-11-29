@@ -970,11 +970,26 @@
                     // Если не нашли с пробелами, пробуем без пробелов (на случай если символ = не стандартный или нет пробелов)
                     if (!fullParamInNolink) {
                         // Пробуем более простой паттерн без требований к пробелам
-                        const simpleMatch = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)=([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                        // Используем более гибкий паттерн, который работает с разными символами равенства
+                        const simpleMatch = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)[=＝]([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
                         if (simpleMatch) {
                             console.log(`[extractQuestionText] .nolink[${index}] найден параметр упрощенным паттерном:`, simpleMatch);
                             // Создаем объект, похожий на результат match
                             fullParamInNolink = simpleMatch;
+                        } else {
+                            // Если все еще не нашли, пробуем еще более гибкий паттерн
+                            // Разбиваем текст на части и ищем паттерн вручную
+                            console.log(`[extractQuestionText] .nolink[${index}] пробуем найти параметр вручную в тексте: "${cleanedNolinkText}"`);
+                            const parts = cleanedNolinkText.split(/[=＝]/);
+                            if (parts.length === 2) {
+                                const key = parts[0].trim();
+                                const val = parts[1].trim();
+                                if (key && val && key.match(/^[a-zA-Zа-яА-Я]/) && val.match(/^[-]?\d/)) {
+                                    console.log(`[extractQuestionText] .nolink[${index}] найден параметр вручную: key="${key}", val="${val}"`);
+                                    // Создаем объект, похожий на результат match
+                                    fullParamInNolink = [cleanedNolinkText, key, val];
+                                }
+                            }
                         }
                     }
                     

@@ -952,14 +952,50 @@
                     
                     console.log(`[extractQuestionText] .nolink[${index}]: text="${nolinkText}", data-value="${nolinkDataValue}", title="${nolinkTitle}"`);
                     
-                    // Если в .nolink есть число, это может быть значение параметра
-                    const numberInNolink = nolinkText.match(/(\d+(?:\.\d+)?)/);
-                    if (numberInNolink) {
-                        // Пытаемся найти параметр, который содержит это значение
-                        const matchingParam = params.find(p => p.value === numberInNolink[1] || p.full.includes(numberInNolink[1]));
+                    // Если в .nolink есть текст, пытаемся найти полный параметр в нем
+                    // Сначала очищаем текст от LaTeX команд (overline, hat, vec)
+                    let cleanedNolinkText = nolinkText.replace(/[¯]+/g, ''); // Убираем символы overline
+                    cleanedNolinkText = cleanedNolinkText.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
+                    cleanedNolinkText = cleanedNolinkText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
+                    cleanedNolinkText = cleanedNolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
+                    
+                    // Пытаемся найти полный параметр в тексте .nolink (например, "m=1" или "a=14" или "R=-0.1v")
+                    const fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                    if (fullParamInNolink) {
+                        const key = fullParamInNolink[1];
+                        const val = fullParamInNolink[2];
+                        const full = key + ' = ' + val;
+                        // Ищем точное совпадение параметра
+                        const matchingParam = params.find(p => p.full === full || (p.key === key && p.value === val));
                         if (matchingParam) {
                             value = matchingParam.full;
-                            console.log(`[extractQuestionText] Найден параметр по числу в .nolink: ${value}`);
+                            console.log(`[extractQuestionText] Найден параметр по полному совпадению в .nolink: ${value}`);
+                        } else {
+                            // Если не нашли точное совпадение, ищем по ключу (переменной)
+                            const matchingParamByKey = params.find(p => p.key === key);
+                            if (matchingParamByKey) {
+                                value = matchingParamByKey.full;
+                                console.log(`[extractQuestionText] Найден параметр по ключу в .nolink: ${value}`);
+                            }
+                        }
+                    }
+                    
+                    // Если не нашли полный параметр, пытаемся найти по числу (но только точное совпадение значения)
+                    if (!value) {
+                        const numberInNolink = cleanedNolinkText.match(/(\d+(?:\.\d+)?)/);
+                        if (numberInNolink) {
+                            // Ищем параметр с ТОЧНЫМ совпадением значения (не просто вхождение)
+                            const exactValue = numberInNolink[1];
+                            // Сначала ищем точное совпадение значения
+                            let matchingParam = params.find(p => p.value === exactValue);
+                            // Если не нашли, ищем значения с суффиксами (v, t и т.д.)
+                            if (!matchingParam) {
+                                matchingParam = params.find(p => p.value === exactValue + 'v' || p.value === exactValue + 't' || p.value.startsWith(exactValue + '.'));
+                            }
+                            if (matchingParam) {
+                                value = matchingParam.full;
+                                console.log(`[extractQuestionText] Найден параметр по точному числу в .nolink: ${value}`);
+                            }
                         }
                     }
                     

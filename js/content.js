@@ -749,6 +749,25 @@
             }
             
             if (qtext) {
+                // ВАЖНО: Сначала извлекаем параметры из исходного элемента ДО клонирования
+                // Ищем все параметры в формате "переменная = значение" в исходном DOM
+                const originalQtext = element.querySelector('.qtext') || 
+                                      element.querySelector('.questiontext, .question-text, [class*="question"]') ||
+                                      element;
+                const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
+                
+                // Извлекаем все параметры из исходного текста
+                const paramPattern = /([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/g;
+                const params = [];
+                let match;
+                while ((match = paramPattern.exec(originalText)) !== null) {
+                    params.push({
+                        key: match[1],
+                        value: match[2],
+                        full: match[1] + ' = ' + match[2]
+                    });
+                }
+                
                 // Убираем скрытые элементы
                 qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
                 
@@ -757,6 +776,53 @@
                 
                 // Убираем кнопки и элементы управления расширения
                 qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
+                
+                // Обрабатываем элементы .nolink - заменяем их на соответствующие параметры
+                qtext.querySelectorAll('.nolink, span.nolink').forEach((nolinkEl, index) => {
+                    // Пытаемся найти соответствующий параметр по контексту
+                    let value = '';
+                    
+                    // 1. Проверяем атрибуты data-*
+                    value = nolinkEl.getAttribute('data-value') || 
+                           nolinkEl.getAttribute('data-param') ||
+                           nolinkEl.getAttribute('title') ||
+                           '';
+                    
+                    // 2. Если не нашли в атрибутах, ищем в тексте вокруг элемента
+                    if (!value) {
+                        const parent = nolinkEl.parentElement;
+                        if (parent) {
+                            const context = parent.textContent || '';
+                            // Ищем ближайший параметр в контексте
+                            const contextMatch = context.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
+                            if (contextMatch) {
+                                value = contextMatch[1] + ' = ' + contextMatch[2];
+                            }
+                        }
+                    }
+                    
+                    // 3. Если все еще не нашли, используем параметры из исходного текста
+                    if (!value && params.length > 0) {
+                        // Пытаемся найти параметр по позиции или по контексту
+                        const nolinkIndex = Array.from(qtext.querySelectorAll('.nolink, span.nolink')).indexOf(nolinkEl);
+                        if (nolinkIndex < params.length) {
+                            value = params[nolinkIndex].full;
+                        } else if (params.length > 0) {
+                            // Используем первый доступный параметр
+                            value = params[0].full;
+                        }
+                    }
+                    
+                    // 4. Заменяем элемент на найденное значение или на пробел
+                    if (value) {
+                        const textNode = document.createTextNode(' ' + value + ' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    } else {
+                        // Если значение не найдено, заменяем на пробел, чтобы текст не склеивался
+                        const textNode = document.createTextNode(' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    }
+                });
                 
                 // Убираем блоки с ответами и вариантами
                 qtext.querySelectorAll('.answer, .ablock, .formulation').forEach(el => {

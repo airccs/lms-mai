@@ -894,6 +894,22 @@
                 // Убираем пустые строки
                 text = text.replace(/\n\s*\n/g, '\n');
                 
+                // Финальная проверка: убеждаемся, что все параметры из исходного текста присутствуют
+                if (params && params.length > 0) {
+                    const missingParams = params.filter(param => {
+                        // Проверяем, есть ли параметр в извлеченном тексте
+                        const paramRegex = new RegExp(param.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*=\\s*' + param.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                        return !paramRegex.test(text);
+                    });
+                    
+                    if (missingParams.length > 0) {
+                        // Добавляем недостающие параметры в конец текста
+                        const missingText = missingParams.map(p => p.full).join(', ');
+                        text = text + ' ' + missingText;
+                        console.log('[ExtractQuestionText] Добавлены недостающие параметры:', missingText);
+                    }
+                }
+                
                 console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));
                 
                 return text;

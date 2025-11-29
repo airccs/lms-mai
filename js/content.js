@@ -120,7 +120,10 @@
                 // Добавляем кнопку для повторного сканирования
                 this.addRescanButton();
             
-            this.showNotification(`📊 Сканирование завершено! Обновлено ответов: ${updatedCount}`, 'success');
+                this.showNotification(`📊 Сканирование завершено! Обновлено ответов: ${updatedCount}`, 'success');
+            } finally {
+                this.isProcessingReview = false;
+            }
         }
 
         async updateAllSavedAnswersFromReview(questionElements) {

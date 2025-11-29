@@ -756,17 +756,20 @@
                                       element;
                 const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
                 
-                // Извлекаем все параметры из исходного текста
+                // Извлекаем все параметры из исходного текста (уникальные)
                 const paramPattern = /([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/g;
-                const params = [];
+                const paramsMap = new Map(); // Используем Map для уникальности
                 let match;
                 while ((match = paramPattern.exec(originalText)) !== null) {
-                    params.push({
-                        key: match[1],
-                        value: match[2],
-                        full: match[1] + ' = ' + match[2]
-                    });
+                    const key = match[1];
+                    const value = match[2];
+                    const full = key + ' = ' + value;
+                    // Сохраняем только уникальные параметры (ключ + значение)
+                    if (!paramsMap.has(full)) {
+                        paramsMap.set(full, { key, value, full });
+                    }
                 }
+                const params = Array.from(paramsMap.values()); // Преобразуем в массив
                 
                 // Убираем скрытые элементы
                 qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
@@ -777,51 +780,12 @@
                 // Убираем кнопки и элементы управления расширения
                 qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
                 
-                // Обрабатываем элементы .nolink - заменяем их на соответствующие параметры
-                qtext.querySelectorAll('.nolink, span.nolink').forEach((nolinkEl, index) => {
-                    // Пытаемся найти соответствующий параметр по контексту
-                    let value = '';
-                    
-                    // 1. Проверяем атрибуты data-*
-                    value = nolinkEl.getAttribute('data-value') || 
-                           nolinkEl.getAttribute('data-param') ||
-                           nolinkEl.getAttribute('title') ||
-                           '';
-                    
-                    // 2. Если не нашли в атрибутах, ищем в тексте вокруг элемента
-                    if (!value) {
-                        const parent = nolinkEl.parentElement;
-                        if (parent) {
-                            const context = parent.textContent || '';
-                            // Ищем ближайший параметр в контексте
-                            const contextMatch = context.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
-                            if (contextMatch) {
-                                value = contextMatch[1] + ' = ' + contextMatch[2];
-                            }
-                        }
-                    }
-                    
-                    // 3. Если все еще не нашли, используем параметры из исходного текста
-                    if (!value && params.length > 0) {
-                        // Пытаемся найти параметр по позиции или по контексту
-                        const nolinkIndex = Array.from(qtext.querySelectorAll('.nolink, span.nolink')).indexOf(nolinkEl);
-                        if (nolinkIndex < params.length) {
-                            value = params[nolinkIndex].full;
-                        } else if (params.length > 0) {
-                            // Используем первый доступный параметр
-                            value = params[0].full;
-                        }
-                    }
-                    
-                    // 4. Заменяем элемент на найденное значение или на пробел
-                    if (value) {
-                        const textNode = document.createTextNode(' ' + value + ' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                    } else {
-                        // Если значение не найдено, заменяем на пробел, чтобы текст не склеивался
-                        const textNode = document.createTextNode(' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                    }
+                // Обрабатываем элементы .nolink - заменяем их на пробелы (не подставляем параметры)
+                // Параметры должны быть уже в тексте, мы просто убираем маркеры
+                qtext.querySelectorAll('.nolink, span.nolink').forEach((nolinkEl) => {
+                    // Просто заменяем на пробел, чтобы текст не склеивался
+                    const textNode = document.createTextNode(' ');
+                    nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
                 });
                 
                 // Убираем блоки с ответами и вариантами
@@ -894,20 +858,47 @@
                 // Убираем пустые строки
                 text = text.replace(/\n\s*\n/g, '\n');
                 
-                // Финальная проверка: убеждаемся, что все параметры из исходного текста присутствуют
-                if (params && params.length > 0) {
-                    const missingParams = params.filter(param => {
-                        // Проверяем, есть ли параметр в извлеченном тексте
-                        const paramRegex = new RegExp(param.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*=\\s*' + param.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-                        return !paramRegex.test(text);
-                    });
-                    
-                    if (missingParams.length > 0) {
-                        // Добавляем недостающие параметры в конец текста
-                        const missingText = missingParams.map(p => p.full).join(', ');
-                        text = text + ' ' + missingText;
-                        console.log('[ExtractQuestionText] Добавлены недостающие параметры:', missingText);
+                // Удаляем дубликаты всего текста вопроса (если весь вопрос повторяется)
+                // Ищем повторяющиеся большие блоки текста (более 50 символов)
+                const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 50);
+                const uniqueSentences = [];
+                const seenSentences = new Set();
+                
+                for (const sentence of sentences) {
+                    const normalized = sentence.trim().toLowerCase().replace(/\s+/g, ' ');
+                    if (!seenSentences.has(normalized)) {
+                        seenSentences.add(normalized);
+                        uniqueSentences.push(sentence.trim());
                     }
+                }
+                
+                // Если нашли дубликаты, пересобираем текст из уникальных предложений
+                if (uniqueSentences.length < sentences.length) {
+                    // Оставляем оригинальный текст, но удаляем явные дубликаты
+                    // Ищем повторяющиеся фразы длиной более 100 символов
+                    let cleanedText = text;
+                    const longPhrases = text.match(/.{100,}/g) || [];
+                    for (const phrase of longPhrases) {
+                        const normalized = phrase.trim().toLowerCase().replace(/\s+/g, ' ');
+                        // Если фраза повторяется более одного раза, оставляем только первое вхождение
+                        const regex = new RegExp('(' + phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')\\s*\\1+', 'g');
+                        cleanedText = cleanedText.replace(regex, '$1');
+                    }
+                    text = cleanedText;
+                }
+                
+                // Удаляем дубликаты параметров в конце текста (если они были добавлены ранее)
+                // Ищем паттерн "параметр, параметр, параметр" в конце
+                const paramListPattern = /((?:[a-zA-Zа-яА-Я0-9]+\s*=\s*\d+(?:\.\d+)?,\s*)+[a-zA-Zа-яА-Я0-9]+\s*=\s*\d+(?:\.\d+)?)\s*$/;
+                const paramListMatch = text.match(paramListPattern);
+                if (paramListMatch) {
+                    // Извлекаем список параметров
+                    const paramList = paramListMatch[1];
+                    // Убираем дубликаты из списка
+                    const paramsArray = paramList.split(',').map(p => p.trim());
+                    const uniqueParams = Array.from(new Set(paramsArray));
+                    // Заменяем список на уникальные параметры
+                    text = text.replace(paramListPattern, uniqueParams.join(', '));
                 }
                 
                 console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));

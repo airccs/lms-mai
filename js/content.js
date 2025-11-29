@@ -760,57 +760,109 @@
                 const params = [];
                 
                 // Для каждого .nolink элемента ищем ближайший параметр в исходном DOM
-                originalNolinks.forEach(nolinkEl => {
-                    // Ищем параметр в родительском элементе
+                originalNolinks.forEach((nolinkEl, nolinkIndex) => {
+                    // Ищем параметр в тексте вокруг nolink элемента
+                    // Стратегия: ищем параметр в родительском элементе, но учитываем позицию nolink
+                    
                     let parent = nolinkEl.parentElement;
                     let found = false;
                     
-                    // Проверяем несколько уровней вверх
-                    for (let level = 0; level < 5 && parent && !found; level++) {
-                        // Получаем текст родителя, включая все дочерние элементы
-                        let parentText = '';
+                    // Получаем весь текст родителя до обработки
+                    const parentClone = parent ? parent.cloneNode(true) : null;
+                    if (!parentClone) return;
+                    
+                    parentClone.querySelectorAll('script, style').forEach(el => el.remove());
+                    
+                    // Обрабатываем sup/sub в клоне
+                    parentClone.querySelectorAll('sup').forEach(supEl => {
+                        const supText = supEl.textContent || '';
+                        if (supText) {
+                            const textNode = document.createTextNode(supText);
+                            supEl.parentNode.replaceChild(textNode, supEl);
+                        } else {
+                            supEl.remove();
+                        }
+                    });
+                    
+                    parentClone.querySelectorAll('sub').forEach(subEl => {
+                        const subText = subEl.textContent || '';
+                        if (subText) {
+                            const textNode = document.createTextNode(subText);
+                            subEl.parentNode.replaceChild(textNode, subEl);
+                        } else {
+                            subEl.remove();
+                        }
+                    });
+                    
+                    const parentText = parentClone.textContent || parentClone.innerText || '';
+                    
+                    // Находим позицию текущего nolink в тексте
+                    // Создаем временный маркер для определения позиции
+                    const tempMarker = document.createTextNode('__NOLINK_MARKER__');
+                    nolinkEl.parentNode.insertBefore(tempMarker, nolinkEl);
+                    const markerText = parentClone.textContent || '';
+                    const markerIndex = markerText.indexOf('__NOLINK_MARKER__');
+                    tempMarker.remove();
+                    
+                    // Ищем все параметры в тексте родителя
+                    const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
+                    const allParams = [];
+                    let match;
+                    while ((match = paramPattern.exec(parentText)) !== null) {
+                        const paramStart = match.index;
+                        const paramEnd = paramStart + match[0].length;
+                        const key = match[1];
+                        const value = match[2];
+                        const full = key + ' = ' + value;
                         
-                        // Сначала пробуем получить текст из клона, чтобы сохранить структуру
-                        const parentClone = parent.cloneNode(true);
-                        parentClone.querySelectorAll('script, style').forEach(el => el.remove());
-                        
-                        // Обрабатываем sup/sub в клоне
-                        parentClone.querySelectorAll('sup').forEach(supEl => {
-                            const supText = supEl.textContent || '';
-                            if (supText) {
-                                const textNode = document.createTextNode(supText);
-                                supEl.parentNode.replaceChild(textNode, supEl);
-                            } else {
-                                supEl.remove();
-                            }
+                        allParams.push({
+                            key,
+                            value,
+                            full,
+                            start: paramStart,
+                            end: paramEnd
+                        });
+                    }
+                    
+                    // Находим параметр, который ближе всего к позиции nolink
+                    if (allParams.length > 0 && markerIndex >= 0) {
+                        // Сортируем параметры по расстоянию до маркера
+                        allParams.sort((a, b) => {
+                            const distA = Math.abs(a.start - markerIndex);
+                            const distB = Math.abs(b.start - markerIndex);
+                            return distA - distB;
                         });
                         
-                        parentClone.querySelectorAll('sub').forEach(subEl => {
-                            const subText = subEl.textContent || '';
-                            if (subText) {
-                                const textNode = document.createTextNode(subText);
-                                subEl.parentNode.replaceChild(textNode, subEl);
-                            } else {
-                                subEl.remove();
+                        // Берем ближайший параметр, но только если он не слишком далеко (в пределах 200 символов)
+                        const closestParam = allParams[0];
+                        if (closestParam && Math.abs(closestParam.start - markerIndex) < 200) {
+                            // Проверяем, не добавили ли мы уже этот параметр для этого nolink
+                            if (!params.some(p => p.full === closestParam.full && p.nolinkEl === nolinkEl)) {
+                                params.push({ 
+                                    key: closestParam.key, 
+                                    value: closestParam.value, 
+                                    full: closestParam.full, 
+                                    nolinkEl,
+                                    index: nolinkIndex
+                                });
                             }
-                        });
-                        
-                        parentText = parentClone.textContent || parentClone.innerText || '';
-                        
+                            found = true;
+                        }
+                    }
+                    
+                    // Если не нашли по позиции, пробуем найти по контексту (старый метод)
+                    if (!found) {
                         // Ищем параметр в формате "переменная = значение" рядом с nolink
-                        // Улучшенный паттерн: учитываем переменные с цифрами (m2, m1, t3 и т.д.)
-                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*(\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                        const paramMatch = parentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
                         if (paramMatch) {
                             const key = paramMatch[1];
                             const value = paramMatch[2];
                             const full = key + ' = ' + value;
                             // Проверяем, не добавили ли мы уже этот параметр
                             if (!params.some(p => p.full === full && p.nolinkEl === nolinkEl)) {
-                                params.push({ key, value, full, nolinkEl });
+                                params.push({ key, value, full, nolinkEl, index: nolinkIndex });
                             }
-                            found = true;
                         }
-                        parent = parent.parentElement;
                     }
                 });
                 
@@ -849,7 +901,14 @@
                     const originalNolink = originalNolinks[index];
                     if (originalNolink) {
                         // Ищем параметр, который был связан с этим nolink
-                        const param = params.find(p => p.nolinkEl === originalNolink);
+                        // Сначала ищем по точному совпадению nolinkEl
+                        let param = params.find(p => p.nolinkEl === originalNolink);
+                        
+                        // Если не нашли, ищем по индексу
+                        if (!param) {
+                            param = params.find(p => p.index === index);
+                        }
+                        
                         if (param) {
                             value = param.full;
                         }
@@ -857,18 +916,23 @@
                     
                     // Если не нашли по связи, пытаемся найти по позиции или контексту
                     if (!value && params.length > 0) {
-                        // Используем параметр по индексу (если их количество совпадает)
-                        if (index < params.length && params[index].full) {
-                            value = params[index].full;
-                        } else {
-                            // Ищем параметр в контексте родительского элемента
-                            const parent = nolinkEl.parentElement;
-                            if (parent) {
-                                const context = parent.textContent || '';
-                                const contextMatch = context.match(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/);
-                                if (contextMatch) {
-                                    value = contextMatch[1] + ' = ' + contextMatch[2];
-                                }
+                        // Ищем параметр в контексте родительского элемента
+                        const parent = nolinkEl.parentElement;
+                        if (parent) {
+                            const context = parent.textContent || '';
+                            // Улучшенный паттерн: учитываем отрицательные числа и переменные с цифрами
+                            const contextMatch = context.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                            if (contextMatch) {
+                                value = contextMatch[1] + ' = ' + contextMatch[2];
+                            }
+                        }
+                        
+                        // Если все еще не нашли, используем параметр по индексу (только если их количество совпадает)
+                        if (!value && index < params.length) {
+                            // Но только если это не первый параметр (чтобы не подставлять m=1 везде)
+                            const paramByIndex = params[index];
+                            if (paramByIndex && paramByIndex.full && index > 0) {
+                                value = paramByIndex.full;
                             }
                         }
                     }

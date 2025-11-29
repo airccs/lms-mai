@@ -871,6 +871,7 @@
                 }
                 
                 // Также извлекаем все параметры из исходного текста (на случай, если они не рядом с .nolink)
+                // ВАЖНО: Делаем это ДО обработки .nolink, чтобы не потерять параметры
                 const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
                 const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
                 const paramsMap = new Map();
@@ -887,6 +888,46 @@
                 // Добавляем параметры, которые не были найдены рядом с .nolink
                 params.push(...Array.from(paramsMap.values()));
                 
+                // Также проверяем, есть ли параметры в атрибутах .nolink элементов в исходном DOM
+                originalNolinks.forEach((nolinkEl, index) => {
+                    const dataValue = nolinkEl.getAttribute('data-value') || nolinkEl.getAttribute('data-param') || '';
+                    const title = nolinkEl.getAttribute('title') || '';
+                    const nolinkText = nolinkEl.textContent || '';
+                    
+                    // Если в .nolink есть число, пытаемся найти соответствующий параметр
+                    if (dataValue || title || nolinkText.match(/\d/)) {
+                        // Ищем параметр в тексте перед этим .nolink
+                        const parent = nolinkEl.parentElement;
+                        if (parent) {
+                            const range = document.createRange();
+                            range.selectNodeContents(parent);
+                            range.setEndBefore(nolinkEl);
+                            const textBefore = range.toString();
+                            
+                            // Ищем параметр в тексте перед .nolink (в пределах 50 символов)
+                            const recentText = textBefore.slice(-50);
+                            const paramMatch = recentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                            if (paramMatch) {
+                                const key = paramMatch[1];
+                                const value = paramMatch[2];
+                                const full = key + ' = ' + value;
+                                
+                                // Проверяем, не добавили ли мы уже этот параметр для этого nolink
+                                if (!params.some(p => p.nolinkEl === nolinkEl && p.full === full)) {
+                                    // Если параметр еще не связан с этим nolink, добавляем связь
+                                    const existingParam = params.find(p => p.full === full);
+                                    if (existingParam && !existingParam.nolinkEl) {
+                                        existingParam.nolinkEl = nolinkEl;
+                                        existingParam.index = index;
+                                    } else if (!existingParam) {
+                                        params.push({ key, value, full, nolinkEl, index });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                
                 // Убираем скрытые элементы
                 qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
                 
@@ -901,20 +942,52 @@
                 clonedNolinks.forEach((nolinkEl, index) => {
                     let value = '';
                     
-                    // Пытаемся найти соответствующий параметр из исходного DOM
-                    const originalNolink = originalNolinks[index];
-                    if (originalNolink) {
-                        // Ищем параметр, который был связан с этим nolink
-                        // Сначала ищем по точному совпадению nolinkEl
-                        let param = params.find(p => p.nolinkEl === originalNolink);
-                        
-                        // Если не нашли, ищем по индексу
-                        if (!param) {
-                            param = params.find(p => p.index === index);
+                    // Сначала проверяем, есть ли значение в самом .nolink элементе или его атрибутах
+                    const nolinkText = nolinkEl.textContent || nolinkEl.innerText || '';
+                    const nolinkDataValue = nolinkEl.getAttribute('data-value') || nolinkEl.getAttribute('data-param') || '';
+                    const nolinkTitle = nolinkEl.getAttribute('title') || '';
+                    
+                    // Если в .nolink есть число, это может быть значение параметра
+                    const numberInNolink = nolinkText.match(/(\d+(?:\.\d+)?)/);
+                    if (numberInNolink) {
+                        // Пытаемся найти параметр, который содержит это значение
+                        const matchingParam = params.find(p => p.value === numberInNolink[1] || p.full.includes(numberInNolink[1]));
+                        if (matchingParam) {
+                            value = matchingParam.full;
                         }
-                        
-                        if (param) {
-                            value = param.full;
+                    }
+                    
+                    // Если не нашли, проверяем атрибуты
+                    if (!value && nolinkDataValue) {
+                        // Пытаемся найти параметр с таким значением
+                        const matchingParam = params.find(p => p.value === nolinkDataValue || p.full.includes(nolinkDataValue));
+                        if (matchingParam) {
+                            value = matchingParam.full;
+                        } else if (nolinkDataValue.match(/^\d+(?:\.\d+)?$/)) {
+                            // Если это просто число, ищем параметр с таким значением
+                            const matchingParam = params.find(p => p.value === nolinkDataValue);
+                            if (matchingParam) {
+                                value = matchingParam.full;
+                            }
+                        }
+                    }
+                    
+                    // Пытаемся найти соответствующий параметр из исходного DOM
+                    if (!value) {
+                        const originalNolink = originalNolinks[index];
+                        if (originalNolink) {
+                            // Ищем параметр, который был связан с этим nolink
+                            // Сначала ищем по точному совпадению nolinkEl
+                            let param = params.find(p => p.nolinkEl === originalNolink);
+                            
+                            // Если не нашли, ищем по индексу
+                            if (!param) {
+                                param = params.find(p => p.index === index);
+                            }
+                            
+                            if (param) {
+                                value = param.full;
+                            }
                         }
                     }
                     
@@ -951,15 +1024,43 @@
                                 }
                             }
                         }
-                        
-                        // Если все еще не нашли, НЕ используем параметр по индексу, 
-                        // так как это приводит к неправильной подстановке
                     }
                     
-                    // Заменяем элемент на найденное значение или на пробел
+                    // Перед заменой проверяем, не находится ли параметр уже в тексте рядом с .nolink
                     if (value) {
-                        const textNode = document.createTextNode(' ' + value + ' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                        const parent = nolinkEl.parentElement;
+                        if (parent) {
+                            // Получаем текст вокруг .nolink (50 символов до и после)
+                            const range = document.createRange();
+                            range.selectNodeContents(parent);
+                            const startOffset = Math.max(0, range.toString().indexOf(nolinkEl.textContent || '') - 50);
+                            range.setStart(parent, 0);
+                            range.setEndAfter(nolinkEl);
+                            const textAround = range.toString().slice(startOffset);
+                            
+                            // Проверяем, есть ли уже этот параметр в тексте рядом
+                            const paramKey = value.split('=')[0].trim();
+                            const paramValue = value.split('=')[1]?.trim() || '';
+                            
+                            // Ищем параметр в тексте (в пределах 30 символов от .nolink)
+                            const nearbyText = textAround.slice(-30);
+                            const paramAlreadyExists = nearbyText.includes(paramKey + ' = ' + paramValue) || 
+                                                       nearbyText.includes(paramKey + '=' + paramValue);
+                            
+                            if (paramAlreadyExists) {
+                                // Параметр уже есть в тексте, просто удаляем .nolink
+                                const textNode = document.createTextNode(' ');
+                                nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                            } else {
+                                // Параметра нет, подставляем его
+                                const textNode = document.createTextNode(' ' + value + ' ');
+                                nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                            }
+                        } else {
+                            // Если нет родителя, просто подставляем значение
+                            const textNode = document.createTextNode(' ' + value + ' ');
+                            nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                        }
                     } else {
                         // Если значение не найдено, заменяем на пробел
                         const textNode = document.createTextNode(' ');

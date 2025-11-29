@@ -960,14 +960,41 @@
                     cleanedNolinkText = cleanedNolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
                     
                     // Пытаемся найти полный параметр в тексте .nolink (например, "m=1" или "a=14" или "R=-0.1v")
+                    // Улучшенный паттерн: поддерживает значения с переменными (например, "-0.1v")
                     const fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
                     if (fullParamInNolink) {
                         const key = fullParamInNolink[1];
                         const val = fullParamInNolink[2];
                         const full = key + ' = ' + val;
+                        
                         // Ищем точное совпадение параметра
-                        const matchingParam = params.find(p => p.full === full || (p.key === key && p.value === val));
-                        if (matchingParam) {
+                        let matchingParam = params.find(p => p.full === full || (p.key === key && p.value === val));
+                        
+                        // Если не нашли точное совпадение, но значение содержит переменную (например, "-0.1v")
+                        // пытаемся найти параметр с таким же ключом и похожим значением
+                        if (!matchingParam && val.match(/[a-zA-Zа-яА-Я]/)) {
+                            // Ищем параметр с таким же ключом
+                            const paramWithSameKey = params.find(p => p.key === key);
+                            if (paramWithSameKey) {
+                                // Если значение параметра - это число, а в .nolink есть число + переменная,
+                                // создаем полный параметр из найденного параметра и переменной из .nolink
+                                const numberInVal = val.match(/([-]?\d+(?:\.\d+)?)/);
+                                const variableInVal = val.match(/([a-zA-Zа-яА-Я]+)/);
+                                if (numberInVal && variableInVal && paramWithSameKey.value === numberInVal[1]) {
+                                    // Используем найденный параметр, но с переменной из .nolink
+                                    value = key + ' = ' + val;
+                                    console.log(`[extractQuestionText] Создан параметр из найденного и переменной в .nolink: ${value}`);
+                                } else {
+                                    // Используем найденный параметр как есть
+                                    value = paramWithSameKey.full;
+                                    console.log(`[extractQuestionText] Найден параметр по ключу в .nolink: ${value}`);
+                                }
+                            } else {
+                                // Если параметр с таким ключом не найден, используем значение из .nolink напрямую
+                                value = full;
+                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink: ${value}`);
+                            }
+                        } else if (matchingParam) {
                             value = matchingParam.full;
                             console.log(`[extractQuestionText] Найден параметр по полному совпадению в .nolink: ${value}`);
                         } else {

@@ -858,32 +858,38 @@
                 // Убираем пустые строки
                 text = text.replace(/\n\s*\n/g, '\n');
                 
-                // Удаляем дубликаты всего текста вопроса (если весь вопрос повторяется)
-                // Ищем повторяющиеся большие блоки текста (более 50 символов)
-                const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 50);
-                const uniqueSentences = [];
-                const seenSentences = new Set();
+                // Удаляем дубликаты всего текста вопроса
+                // Стратегия: ищем повторяющиеся большие блоки текста и удаляем дубликаты
                 
-                for (const sentence of sentences) {
-                    const normalized = sentence.trim().toLowerCase().replace(/\s+/g, ' ');
-                    if (!seenSentences.has(normalized)) {
-                        seenSentences.add(normalized);
-                        uniqueSentences.push(sentence.trim());
+                // Метод 1: Удаляем повторяющиеся предложения (более 50 символов)
+                const minSentenceLength = 50;
+                const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length >= minSentenceLength);
+                if (sentences.length > 1) {
+                    const seenSentences = new Set();
+                    const uniqueSentences = [];
+                    
+                    for (const sentence of sentences) {
+                        const normalized = sentence.trim().toLowerCase().replace(/\s+/g, ' ').substring(0, 200); // Берем первые 200 символов для сравнения
+                        if (!seenSentences.has(normalized)) {
+                            seenSentences.add(normalized);
+                            uniqueSentences.push(sentence.trim());
+                        }
+                    }
+                    
+                    // Если нашли дубликаты, пересобираем текст
+                    if (uniqueSentences.length < sentences.length) {
+                        text = uniqueSentences.join(' ');
                     }
                 }
                 
-                // Если нашли дубликаты, пересобираем текст из уникальных предложений
-                if (uniqueSentences.length < sentences.length) {
-                    // Оставляем оригинальный текст, но удаляем явные дубликаты
-                    // Ищем повторяющиеся фразы длиной более 100 символов
-                    let cleanedText = text;
-                    const longPhrases = text.match(/.{100,}/g) || [];
-                    for (const phrase of longPhrases) {
-                        const normalized = phrase.trim().toLowerCase().replace(/\s+/g, ' ');
-                        // Если фраза повторяется более одного раза, оставляем только первое вхождение
-                        const regex = new RegExp('(' + phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')\\s*\\1+', 'g');
-                        cleanedText = cleanedText.replace(regex, '$1');
-                    }
+                // Метод 2: Удаляем повторяющиеся длинные фразы (более 100 символов)
+                // Ищем фразы, которые повторяются подряд
+                let cleanedText = text;
+                const phrasePattern = /(.{100,}?)(?:\s+\1)+/g;
+                cleanedText = cleanedText.replace(phrasePattern, '$1');
+                
+                // Если текст изменился, обновляем
+                if (cleanedText !== text) {
                     text = cleanedText;
                 }
                 

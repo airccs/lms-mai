@@ -959,9 +959,12 @@
                     cleanedNolinkText = cleanedNolinkText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
                     cleanedNolinkText = cleanedNolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
                     
+                    console.log(`[extractQuestionText] .nolink[${index}] очищенный текст: "${cleanedNolinkText}"`);
+                    
                     // Пытаемся найти полный параметр в тексте .nolink (например, "m=1" или "a=14" или "R=-0.1v")
                     // Улучшенный паттерн: поддерживает значения с переменными (например, "-0.1v")
                     const fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
+                    console.log(`[extractQuestionText] .nolink[${index}] результат поиска полного параметра:`, fullParamInNolink);
                     if (fullParamInNolink) {
                         const key = fullParamInNolink[1];
                         const val = fullParamInNolink[2];
@@ -992,7 +995,7 @@
                             } else {
                                 // Если параметр с таким ключом не найден, используем значение из .nolink напрямую
                                 value = full;
-                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink: ${value}`);
+                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink (параметр с ключом ${key} не найден): ${value}`);
                             }
                         } else if (matchingParam) {
                             value = matchingParam.full;
@@ -1003,8 +1006,14 @@
                             if (matchingParamByKey) {
                                 value = matchingParamByKey.full;
                                 console.log(`[extractQuestionText] Найден параметр по ключу в .nolink: ${value}`);
+                            } else {
+                                // Если параметр с таким ключом не найден, используем значение из .nolink напрямую
+                                value = full;
+                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink (параметр с ключом ${key} не найден в списке): ${value}`);
                             }
                         }
+                    } else {
+                        console.log(`[extractQuestionText] .nolink[${index}] полный параметр не найден в тексте "${cleanedNolinkText}"`);
                     }
                     
                     // Если не нашли полный параметр, пытаемся найти по числу (но только точное совпадение значения)

@@ -10,6 +10,7 @@
             this.solvingInProgress = new Set();
             this.savedAnswers = new Map();
             this.statistics = new Map();
+            this.isProcessingReview = false; // Флаг для предотвращения повторных вызовов
             this.init();
         }
 
@@ -70,54 +71,54 @@
             try {
                 const questionElements = document.querySelectorAll('.que');
             
-            let totalQuestions = 0;
-            let correctAnswers = 0;
-            let incorrectAnswers = 0;
-            let updatedCount = 0;
-            const results = [];
+                let totalQuestions = 0;
+                let correctAnswers = 0;
+                let incorrectAnswers = 0;
+                let updatedCount = 0;
+                const results = [];
 
-            // Сначала обновляем все существующие сохраненные ответы
-            console.log('[Review Scanner] Обновляю существующие сохраненные ответы...');
-            await this.updateAllSavedAnswersFromReview(questionElements);
+                // Сначала обновляем все существующие сохраненные ответы
+                console.log('[Review Scanner] Обновляю существующие сохраненные ответы...');
+                await this.updateAllSavedAnswersFromReview(questionElements);
 
-            for (const element of questionElements) {
-                try {
-                    const question = this.parseQuestion(element, 0);
-                    if (!question) continue;
+                for (const element of questionElements) {
+                    try {
+                        const question = this.parseQuestion(element, 0);
+                        if (!question) continue;
 
-                    totalQuestions++;
-                    const isCorrect = this.determineCorrectnessFromReview(element);
-                    const userAnswer = this.extractUserAnswerFromReview(element, question);
+                        totalQuestions++;
+                        const isCorrect = this.determineCorrectnessFromReview(element);
+                        const userAnswer = this.extractUserAnswerFromReview(element, question);
 
-                    if (isCorrect === true) {
-                        correctAnswers++;
-                    } else if (isCorrect === false) {
-                        incorrectAnswers++;
+                        if (isCorrect === true) {
+                            correctAnswers++;
+                        } else if (isCorrect === false) {
+                            incorrectAnswers++;
+                        }
+
+                        if (userAnswer && isCorrect !== null) {
+                            // Сохраняем ответ с правильным isCorrect и текстом вопроса
+                            const wasUpdated = await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
+                            if (wasUpdated) updatedCount++;
+                            await this.updateStatistics(question.hash, userAnswer, isCorrect);
+                            
+                            results.push({
+                                question: question,
+                                element: element,
+                                isCorrect: isCorrect,
+                                userAnswer: userAnswer
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error processing review question:', e);
                     }
-
-                    if (userAnswer && isCorrect !== null) {
-                        // Сохраняем ответ с правильным isCorrect и текстом вопроса
-                        const wasUpdated = await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
-                        if (wasUpdated) updatedCount++;
-                        await this.updateStatistics(question.hash, userAnswer, isCorrect);
-                        
-                        results.push({
-                            question: question,
-                            element: element,
-                            isCorrect: isCorrect,
-                            userAnswer: userAnswer
-                        });
-                    }
-                } catch (e) {
-                    console.error('Error processing review question:', e);
                 }
-            }
 
-            // Показываем статистику выполнения
-            this.showQuizResults(totalQuestions, correctAnswers, incorrectAnswers, results);
-            
-            // Добавляем кнопку для повторного сканирования
-            this.addRescanButton();
+                // Показываем статистику выполнения
+                this.showQuizResults(totalQuestions, correctAnswers, incorrectAnswers, results);
+                
+                // Добавляем кнопку для повторного сканирования
+                this.addRescanButton();
             
             this.showNotification(`📊 Сканирование завершено! Обновлено ответов: ${updatedCount}`, 'success');
         }

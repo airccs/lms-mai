@@ -872,7 +872,7 @@
                 
                 // Также извлекаем все параметры из исходного текста (на случай, если они не рядом с .nolink)
                 const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
-                const paramPattern = /([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)/g;
+                const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
                 const paramsMap = new Map();
                 let match;
                 while ((match = paramPattern.exec(originalText)) !== null) {
@@ -918,27 +918,42 @@
                         }
                     }
                     
-                    // Если не нашли по связи, пытаемся найти по позиции или контексту
+                    // Если не нашли по связи, пытаемся найти по позиции в тексте
                     if (!value && params.length > 0) {
-                        // Ищем параметр в контексте родительского элемента
+                        // Ищем параметр, который находится непосредственно перед этим .nolink элементом
                         const parent = nolinkEl.parentElement;
                         if (parent) {
-                            const context = parent.textContent || '';
-                            // Улучшенный паттерн: учитываем отрицательные числа и переменные с цифрами
-                            const contextMatch = context.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
-                            if (contextMatch) {
-                                value = contextMatch[1] + ' = ' + contextMatch[2];
+                            // Получаем весь текст родителя до этого .nolink элемента
+                            const range = document.createRange();
+                            range.selectNodeContents(parent);
+                            range.setEndBefore(nolinkEl);
+                            const textBeforeNolink = range.toString();
+                            
+                            // Ищем все параметры в тексте перед .nolink
+                            const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
+                            const paramsBefore = [];
+                            let match;
+                            while ((match = paramPattern.exec(textBeforeNolink)) !== null) {
+                                const full = match[1] + ' = ' + match[2];
+                                paramsBefore.push({
+                                    full,
+                                    end: match.index + match[0].length
+                                });
+                            }
+                            
+                            // Берем последний параметр перед .nolink (самый близкий)
+                            if (paramsBefore.length > 0) {
+                                const closestParam = paramsBefore[paramsBefore.length - 1];
+                                // Проверяем, что параметр не слишком далеко (в пределах 200 символов)
+                                const distance = textBeforeNolink.length - closestParam.end;
+                                if (distance < 200) {
+                                    value = closestParam.full;
+                                }
                             }
                         }
                         
-                        // Если все еще не нашли, используем параметр по индексу (только если их количество совпадает)
-                        if (!value && index < params.length) {
-                            // Но только если это не первый параметр (чтобы не подставлять m=1 везде)
-                            const paramByIndex = params[index];
-                            if (paramByIndex && paramByIndex.full && index > 0) {
-                                value = paramByIndex.full;
-                            }
-                        }
+                        // Если все еще не нашли, НЕ используем параметр по индексу, 
+                        // так как это приводит к неправильной подстановке
                     }
                     
                     // Заменяем элемент на найденное значение или на пробел

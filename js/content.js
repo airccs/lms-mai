@@ -939,6 +939,9 @@
                 
                 // Обрабатываем элементы .nolink - заменяем их на соответствующие параметры
                 const clonedNolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
+                console.log('[extractQuestionText] Найдено .nolink элементов:', clonedNolinks.length);
+                console.log('[extractQuestionText] Найдено параметров:', params.length, params.map(p => p.full));
+                
                 clonedNolinks.forEach((nolinkEl, index) => {
                     let value = '';
                     
@@ -947,6 +950,8 @@
                     const nolinkDataValue = nolinkEl.getAttribute('data-value') || nolinkEl.getAttribute('data-param') || '';
                     const nolinkTitle = nolinkEl.getAttribute('title') || '';
                     
+                    console.log(`[extractQuestionText] .nolink[${index}]: text="${nolinkText}", data-value="${nolinkDataValue}", title="${nolinkTitle}"`);
+                    
                     // Если в .nolink есть число, это может быть значение параметра
                     const numberInNolink = nolinkText.match(/(\d+(?:\.\d+)?)/);
                     if (numberInNolink) {
@@ -954,6 +959,7 @@
                         const matchingParam = params.find(p => p.value === numberInNolink[1] || p.full.includes(numberInNolink[1]));
                         if (matchingParam) {
                             value = matchingParam.full;
+                            console.log(`[extractQuestionText] Найден параметр по числу в .nolink: ${value}`);
                         }
                     }
                     
@@ -987,6 +993,7 @@
                             
                             if (param) {
                                 value = param.full;
+                                console.log(`[extractQuestionText] Найден параметр по связи с originalNolink: ${value}`);
                             }
                         }
                     }
@@ -1019,9 +1026,15 @@
                                 const closestParam = paramsBefore[paramsBefore.length - 1];
                                 // Проверяем, что параметр не слишком далеко (в пределах 200 символов)
                                 const distance = textBeforeNolink.length - closestParam.end;
+                                console.log(`[extractQuestionText] Найдено параметров перед .nolink[${index}]: ${paramsBefore.length}, ближайший: ${closestParam.full}, расстояние: ${distance}`);
                                 if (distance < 200) {
                                     value = closestParam.full;
+                                    console.log(`[extractQuestionText] Используем параметр из текста перед .nolink: ${value}`);
+                                } else {
+                                    console.log(`[extractQuestionText] Параметр слишком далеко (${distance} символов), пропускаем`);
                                 }
+                            } else {
+                                console.log(`[extractQuestionText] Параметры перед .nolink[${index}] не найдены`);
                             }
                         }
                     }

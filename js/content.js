@@ -19,14 +19,14 @@
             
             // Проверяем, находимся ли мы на странице результатов
             if (this.isReviewPage()) {
+                // На страницах результатов не включаем observeDOM, чтобы избежать бесконечного цикла
                 this.processReviewPage();
             } else {
                 this.parseQuestions();
                 this.addSolveButtons();
                 this.setupAutoSave(); // Настраиваем автоматическое сохранение
+                this.observeDOM(); // Включаем observeDOM только на страницах вопросов
             }
-            
-            this.observeDOM();
         }
 
         isReviewPage() {
@@ -798,11 +798,13 @@
                     
                     // Находим позицию текущего nolink в тексте
                     // ВАЖНО: Работаем только с клоном, не изменяем исходный DOM
-                    // Создаем копию nolink элемента в клоне для определения позиции
-                    const nolinkClone = parentClone.querySelector('.nolink, span.nolink');
+                    // Находим все nolink элементы в клоне и используем индекс для определения позиции
+                    const allNolinksInClone = Array.from(parentClone.querySelectorAll('.nolink, span.nolink'));
+                    const nolinkIndexInParent = Array.from(parent.querySelectorAll('.nolink, span.nolink')).indexOf(nolinkEl);
                     let markerIndex = -1;
                     
-                    if (nolinkClone) {
+                    if (nolinkIndexInParent >= 0 && nolinkIndexInParent < allNolinksInClone.length) {
+                        const nolinkClone = allNolinksInClone[nolinkIndexInParent];
                         // Создаем временный маркер в клоне (не в исходном DOM!)
                         const tempMarker = document.createTextNode('__NOLINK_MARKER__');
                         nolinkClone.parentNode.insertBefore(tempMarker, nolinkClone);
@@ -1150,7 +1152,8 @@
                     text = text.replace(paramListPattern, uniqueParams.join(', '));
                 }
                 
-                console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));
+                // Убираем избыточное логирование, чтобы не засорять консоль
+                // console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));
                 
                 return text;
             }

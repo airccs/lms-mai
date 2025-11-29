@@ -797,12 +797,19 @@
                     const parentText = parentClone.textContent || parentClone.innerText || '';
                     
                     // Находим позицию текущего nolink в тексте
-                    // Создаем временный маркер для определения позиции
-                    const tempMarker = document.createTextNode('__NOLINK_MARKER__');
-                    nolinkEl.parentNode.insertBefore(tempMarker, nolinkEl);
-                    const markerText = parentClone.textContent || '';
-                    const markerIndex = markerText.indexOf('__NOLINK_MARKER__');
-                    tempMarker.remove();
+                    // ВАЖНО: Работаем только с клоном, не изменяем исходный DOM
+                    // Создаем копию nolink элемента в клоне для определения позиции
+                    const nolinkClone = parentClone.querySelector('.nolink, span.nolink');
+                    let markerIndex = -1;
+                    
+                    if (nolinkClone) {
+                        // Создаем временный маркер в клоне (не в исходном DOM!)
+                        const tempMarker = document.createTextNode('__NOLINK_MARKER__');
+                        nolinkClone.parentNode.insertBefore(tempMarker, nolinkClone);
+                        const markerText = parentClone.textContent || '';
+                        markerIndex = markerText.indexOf('__NOLINK_MARKER__');
+                        tempMarker.remove();
+                    }
                     
                     // Ищем все параметры в тексте родителя
                     const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
@@ -2156,13 +2163,54 @@
         }
 
         observeDOM() {
-            const observer = new MutationObserver(() => {
-                const newQuestions = document.querySelectorAll('.que');
-                if (newQuestions.length !== this.questions.size) {
-                    this.parseQuestions();
-                    this.addSolveButtons();
-                    this.setupAutoSave(); // Настраиваем автосохранение для новых вопросов
+            let isProcessing = false;
+            let timeoutId = null;
+            
+            const observer = new MutationObserver((mutations) => {
+                // Пропускаем мутации, вызванные самим расширением
+                const isOurMutation = mutations.some(mutation => {
+                    return Array.from(mutation.addedNodes).some(node => {
+                        if (node.nodeType === 1) { // Element node
+                            return node.classList?.contains('quiz-solver-btn') ||
+                                   node.classList?.contains('quiz-solver-buttons') ||
+                                   node.classList?.contains('quiz-solver-saved') ||
+                                   node.classList?.contains('quiz-solver-stats') ||
+                                   node.id === 'quiz-solver-results-panel' ||
+                                   node.id === 'quiz-solver-rescan-btn';
+                        }
+                        return false;
+                    });
+                });
+                
+                if (isOurMutation || isProcessing) {
+                    return; // Пропускаем мутации, вызванные расширением
                 }
+                
+                // Debounce: ждем 500ms перед обработкой
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+                
+                timeoutId = setTimeout(() => {
+                    if (isProcessing) return;
+                    
+                    // Проверяем только на страницах вопросов (не на страницах результатов)
+                    if (this.isReviewPage()) {
+                        return; // Не обрабатываем мутации на страницах результатов
+                    }
+                    
+                    const newQuestions = document.querySelectorAll('.que');
+                    if (newQuestions.length !== this.questions.size && newQuestions.length > 0) {
+                        isProcessing = true;
+                        try {
+                            this.parseQuestions();
+                            this.addSolveButtons();
+                            this.setupAutoSave();
+                        } finally {
+                            isProcessing = false;
+                        }
+                    }
+                }, 500);
             });
 
             observer.observe(document.body, {

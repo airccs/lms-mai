@@ -863,30 +863,82 @@
                 });
                 
                 // Получаем текст - используем textContent для сохранения всех данных
-                // Сначала пробуем получить текст из MathJax элементов, если они есть
-                let text = '';
+                // ВАЖНО: Сначала обрабатываем специальные элементы (sup, sub, MathJax) перед получением textContent
                 
-                // Ищем MathJax элементы и извлекаем их текст
-                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math]');
-                if (mathElements.length > 0) {
-                    mathElements.forEach(mathEl => {
-                        const mathText = mathEl.getAttribute('alttext') || 
-                                       mathEl.getAttribute('data-math') ||
-                                       mathEl.textContent || 
-                                       mathEl.innerText;
-                        if (mathText) {
-                            text += ' ' + mathText;
-                        }
-                    });
-                }
+                // Обрабатываем элементы <sup> и <sub> - заменяем на читаемый текст
+                qtext.querySelectorAll('sup').forEach(supEl => {
+                    const supText = supEl.textContent || supEl.innerText || '';
+                    if (supText) {
+                        // Заменяем на символ степени или просто добавляем в скобках
+                        const replacement = supText.match(/^\d+$/) ? '^' + supText : supText;
+                        const textNode = document.createTextNode(replacement);
+                        supEl.parentNode.replaceChild(textNode, supEl);
+                    } else {
+                        supEl.remove();
+                    }
+                });
                 
-                // Получаем основной текст
-                const mainText = qtext.textContent || qtext.innerText || '';
-                text = (text + ' ' + mainText).trim();
+                qtext.querySelectorAll('sub').forEach(subEl => {
+                    const subText = subEl.textContent || subEl.innerText || '';
+                    if (subText) {
+                        // Заменяем на символ индекса или просто добавляем в скобках
+                        const replacement = subText.match(/^\d+$/) ? '_' + subText : subText;
+                        const textNode = document.createTextNode(replacement);
+                        subEl.parentNode.replaceChild(textNode, subEl);
+                    } else {
+                        subEl.remove();
+                    }
+                });
+                
+                // Ищем MathJax элементы и извлекаем их текст ПЕРЕД получением основного текста
+                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"]');
+                mathElements.forEach(mathEl => {
+                    // Пытаемся извлечь текст из различных источников
+                    let mathText = mathEl.getAttribute('alttext') || 
+                                  mathEl.getAttribute('data-math') ||
+                                  mathEl.getAttribute('aria-label') ||
+                                  '';
+                    
+                    // Если не нашли в атрибутах, пытаемся извлечь из содержимого
+                    if (!mathText) {
+                        // Проверяем все дочерние элементы, включая sup/sub
+                        const clone = mathEl.cloneNode(true);
+                        clone.querySelectorAll('script, style').forEach(el => el.remove());
+                        mathText = clone.textContent || clone.innerText || '';
+                    }
+                    
+                    // Если нашли текст, заменяем MathJax элемент на текст
+                    if (mathText) {
+                        const textNode = document.createTextNode(' ' + mathText + ' ');
+                        mathEl.parentNode.replaceChild(textNode, mathEl);
+                    } else {
+                        // Если не нашли, просто удаляем
+                        mathEl.remove();
+                    }
+                });
+                
+                // Получаем основной текст после обработки всех специальных элементов
+                let text = qtext.textContent || qtext.innerText || '';
+                text = text.trim();
                 
                 // Обрабатываем LaTeX команды - заменяем на читаемый текст
+                // ВАЖНО: Сохраняем степени и индексы
                 text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
-                text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1'); // Убираем другие LaTeX команды
+                text = text.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1'); // \hat{v} -> v
+                text = text.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1'); // \vec{v} -> v
+                
+                // Обрабатываем степени: x^{3} -> x^3, x^3 -> x^3
+                text = text.replace(/\^\{([^}]+)\}/g, '^$1');
+                
+                // Обрабатываем индексы: x_{i} -> x_i, x_i -> x_i
+                text = text.replace(/_\{([^}]+)\}/g, '_$1');
+                
+                // Убираем другие LaTeX команды, но сохраняем содержимое
+                text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1');
+                
+                // Нормализуем символы степеней и индексов
+                text = text.replace(/\^(\d+)/g, '$1'); // x^3 -> x3 (для читаемости, но можно оставить ^)
+                text = text.replace(/_(\d+)/g, '$1'); // x_3 -> x3 (для читаемости, но можно оставить _)
                 
                 // Убираем дубликаты - применяем несколько раз для надежности
                 // Важно: применяем в правильном порядке, от более специфичных к общим

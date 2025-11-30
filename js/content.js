@@ -1189,7 +1189,14 @@
                     // Проверяем, есть ли ссылки на тесты или результаты
                     const hasQuizLinks = document.querySelector('a[href*="quiz"], a[href*="review"], a[href*="attempt"]');
                     if (hasQuizLinks) {
-                        startAutoScan();
+                        // Проверяем состояние сканирования асинхронно
+                        chrome.storage.local.get(['autoScanInProgress']).then(scanState => {
+                            if (!scanState.autoScanInProgress) {
+                                startAutoScan('изменение DOM');
+                            } else {
+                                console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при изменении DOM');
+                            }
+                        });
                     }
                 }
             });
@@ -1256,7 +1263,14 @@
                 }
             };
             
-            window.addEventListener('popstate', startAutoScan);
+            window.addEventListener('popstate', async () => {
+                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                if (!scanState.autoScanInProgress) {
+                    startAutoScan('popstate');
+                } else {
+                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при popstate');
+                }
+            });
 
             console.log('[Auto Force Scan] Автоматическое сканирование настроено');
         }

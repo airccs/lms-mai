@@ -395,11 +395,25 @@
         async forceAutoScan() {
             // Принудительное автосканирование без открытия вкладок
             // Использует ту же логику, что и auto-scan.js, но через fetch
+            
+            // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
+            const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+            if (scanState.autoScanInProgress) {
+                console.log('[Force Auto Scan] Сканирование уже выполняется в фоне');
+                return;
+            }
+            
             if (this.isForceScanning) {
-                console.log('[Force Auto Scan] Сканирование уже выполняется');
+                console.log('[Force Auto Scan] Сканирование уже выполняется локально');
                 return;
             }
 
+            // Устанавливаем флаг сканирования в storage для координации между страницами
+            await chrome.storage.local.set({ 
+                autoScanInProgress: true, 
+                autoScanStartTime: Date.now() 
+            });
+            
             this.isForceScanning = true;
             this.showNotification('Начинаю принудительное автосканирование...', 'info');
 
@@ -509,7 +523,13 @@
                 console.error('[Force Auto Scan] Критическая ошибка:', error);
                 this.showNotification('Ошибка при автосканировании: ' + error.message, 'error');
             } finally {
+                // Сбрасываем флаги сканирования
                 this.isForceScanning = false;
+                await chrome.storage.local.set({ 
+                    autoScanInProgress: false, 
+                    autoScanStartTime: null 
+                });
+                console.log('[Force Auto Scan] Флаги сканирования сброшены');
             }
         }
 
@@ -1043,7 +1063,7 @@
             }
         }
 
-        setupAutoForceScan() {
+        async setupAutoForceScan() {
             // Автоматически запускаем принудительное автосканирование при взаимодействии с LMS
             const url = window.location.href;
             
@@ -1056,16 +1076,39 @@
                 return;
             }
             
+            // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
+            const scanState = await chrome.storage.local.get(['autoScanInProgress', 'autoScanStartTime']);
+            if (scanState.autoScanInProgress) {
+                const startTime = scanState.autoScanStartTime || Date.now();
+                const elapsed = Date.now() - startTime;
+                // Если сканирование идет больше 10 минут, считаем его зависшим и сбрасываем
+                if (elapsed > 600000) {
+                    console.log('[Auto Force Scan] Обнаружено зависшее сканирование, сбрасываю...');
+                    await chrome.storage.local.set({ autoScanInProgress: false, autoScanStartTime: null });
+                } else {
+                    console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад), пропускаю...`);
+                    return;
+                }
+            }
+            
             console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
 
             // Защита от слишком частых запусков
-            let lastScanTime = 0;
+            const scanHistory = await chrome.storage.local.get(['lastScanTime']);
+            let lastScanTime = scanHistory.lastScanTime || 0;
             const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
 
             // Запускаем сканирование с задержкой после загрузки страницы
             let scanTimeout = null;
-            const startAutoScan = (reason = 'неизвестно') => {
+            const startAutoScan = async (reason = 'неизвестно') => {
                 console.log(`[Auto Force Scan] Запрос на запуск сканирования (причина: ${reason})`);
+                
+                // Проверяем состояние сканирования в storage
+                const currentState = await chrome.storage.local.get(['autoScanInProgress', 'lastScanTime']);
+                if (currentState.autoScanInProgress) {
+                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, пропускаю...');
+                    return;
+                }
                 
                 // Проверяем, прошло ли достаточно времени с последнего сканирования
                 const now = Date.now();
@@ -1075,9 +1118,9 @@
                     return;
                 }
 
-                // Проверяем, не выполняется ли уже сканирование
+                // Проверяем, не выполняется ли уже сканирование локально
                 if (this.isForceScanning) {
-                    console.log('[Auto Force Scan] Сканирование уже выполняется, пропускаю...');
+                    console.log('[Auto Force Scan] Сканирование уже выполняется локально, пропускаю...');
                     return;
                 }
 
@@ -1096,8 +1139,16 @@
                 
                 // Запускаем сканирование через 3 секунды после последнего взаимодействия
                 scanTimeout = setTimeout(async () => {
+                    // Еще раз проверяем состояние перед запуском
+                    const finalCheck = await chrome.storage.local.get(['autoScanInProgress']);
+                    if (finalCheck.autoScanInProgress) {
+                        console.log('[Auto Force Scan] Сканирование уже запущено в фоне, отменяю...');
+                        return;
+                    }
+                    
                     if (!this.isForceScanning && !this.isProcessingReview) {
                         lastScanTime = Date.now();
+                        await chrome.storage.local.set({ lastScanTime: lastScanTime });
                         console.log('%c[Auto Force Scan] 🚀 Автоматический запуск сканирования...', 'color: #2563eb; font-weight: bold; font-size: 14px;');
                         this.showNotification('Автоматическое сканирование запущено...', 'info');
                         try {
@@ -1150,20 +1201,34 @@
             });
 
             // Слушаем клики по ссылкам для автоматического запуска
-            document.addEventListener('click', (e) => {
+            document.addEventListener('click', async (e) => {
                 const link = e.target.closest('a');
                 if (link && (link.href.includes('quiz') || link.href.includes('review') || link.href.includes('attempt'))) {
-                    startAutoScan();
+                    // Проверяем, не идет ли уже сканирование
+                    const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                    if (scanState.autoScanInProgress) {
+                        console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при клике');
+                        return;
+                    }
+                    startAutoScan('клик по ссылке');
                 }
             }, true);
 
             // Слушаем изменения URL (для SPA навигации)
             let lastUrl = location.href;
-            new MutationObserver(() => {
+            new MutationObserver(async () => {
                 const url = location.href;
                 if (url !== lastUrl) {
                     lastUrl = url;
-                    startAutoScan();
+                    
+                    // Проверяем, не идет ли уже сканирование перед запуском нового
+                    const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                    if (scanState.autoScanInProgress) {
+                        console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при навигации');
+                        return;
+                    }
+                    
+                    startAutoScan('изменение URL');
                 }
             }).observe(document, { subtree: true, childList: true });
 
@@ -1171,14 +1236,24 @@
             const originalPushState = history.pushState;
             const originalReplaceState = history.replaceState;
             
-            history.pushState = function(...args) {
+            history.pushState = async function(...args) {
                 originalPushState.apply(history, args);
-                startAutoScan();
+                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                if (!scanState.autoScanInProgress) {
+                    startAutoScan('pushState');
+                } else {
+                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при pushState');
+                }
             };
             
-            history.replaceState = function(...args) {
+            history.replaceState = async function(...args) {
                 originalReplaceState.apply(history, args);
-                startAutoScan();
+                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                if (!scanState.autoScanInProgress) {
+                    startAutoScan('replaceState');
+                } else {
+                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при replaceState');
+                }
             };
             
             window.addEventListener('popstate', startAutoScan);

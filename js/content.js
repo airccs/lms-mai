@@ -409,14 +409,25 @@
             }
 
             // Устанавливаем флаг сканирования в storage для координации между страницами
+            // Также сохраняем heartbeat для проверки активности
             await chrome.storage.local.set({ 
                 autoScanInProgress: true, 
-                autoScanStartTime: Date.now() 
+                autoScanStartTime: Date.now(),
+                autoScanHeartbeat: Date.now() // Время последнего обновления
             });
             
             this.isForceScanning = true;
             console.log('[Force Auto Scan] Флаги установлены, начинаю сканирование...');
             this.showNotification('Начинаю принудительное автосканирование...', 'info');
+            
+            // Устанавливаем интервал для обновления heartbeat каждые 10 секунд
+            const heartbeatInterval = setInterval(async () => {
+                if (this.isForceScanning) {
+                    await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                } else {
+                    clearInterval(heartbeatInterval);
+                }
+            }, 10000);
 
             try {
                 let totalScanned = 0;
@@ -514,6 +525,11 @@
                     console.log(`[Force Auto Scan] В тесте найдено ${reviewLinks.length} ссылок на результаты`);
                     
                     for (const reviewLink of reviewLinks) {
+                        // Обновляем heartbeat перед каждым сканированием
+                        if (this.isForceScanning) {
+                            await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                        }
+                        
                         try {
                             const result = await this.scanReviewPageWithFetch(reviewLink);
                             totalScanned++;
@@ -1131,17 +1147,27 @@
             }
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await chrome.storage.local.get(['autoScanInProgress', 'autoScanStartTime']);
+            const scanState = await chrome.storage.local.get(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat']);
             if (scanState.autoScanInProgress) {
                 const startTime = scanState.autoScanStartTime || Date.now();
+                const lastHeartbeat = scanState.autoScanHeartbeat || startTime;
                 const elapsed = Date.now() - startTime;
-                // Если сканирование идет больше 2 минут, считаем его зависшим и сбрасываем
+                const heartbeatElapsed = Date.now() - lastHeartbeat;
+                
+                // Если heartbeat не обновлялся более 30 секунд, считаем сканирование зависшим
+                const MAX_HEARTBEAT_INTERVAL = 30000; // 30 секунд
+                // Если сканирование идет больше 2 минут, считаем его зависшим
                 const MAX_SCAN_DURATION = 120000; // 2 минуты
-                if (elapsed > MAX_SCAN_DURATION) {
-                    console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (${Math.floor(elapsed / 1000)} сек), сбрасываю...`);
-                    await chrome.storage.local.set({ autoScanInProgress: false, autoScanStartTime: null });
+                
+                if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
+                    console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), сбрасываю...`);
+                    await chrome.storage.local.set({ 
+                        autoScanInProgress: false, 
+                        autoScanStartTime: null,
+                        autoScanHeartbeat: null 
+                    });
                 } else {
-                    console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад), пропускаю...`);
+                    console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), пропускаю...`);
                     return;
                 }
             }

@@ -348,17 +348,30 @@ const App: React.FC = () => {
 
         {/* Saved Data */}
         <Section title="Сохраненные данные" icon={DatabaseIcon}>
-          <button
-            onClick={() => {
-              chrome.tabs.create({
-                url: chrome.runtime.getURL('html/saved-data.html')
-              });
-            }}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <DatabaseIcon className="w-4 h-4" />
-            Просмотр сохраненных вопросов и ответов
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                chrome.tabs.create({
+                  url: chrome.runtime.getURL('html/saved-data-react.html')
+                });
+              }}
+              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-md"
+            >
+              <DatabaseIcon className="w-4 h-4" />
+              Просмотр данных (React версия)
+            </button>
+            <button
+              onClick={() => {
+                chrome.tabs.create({
+                  url: chrome.runtime.getURL('html/saved-data.html')
+                });
+              }}
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <DatabaseIcon className="w-4 h-4" />
+              Просмотр данных (HTML версия)
+            </button>
+          </div>
         </Section>
       </main>
 

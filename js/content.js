@@ -1218,49 +1218,81 @@
                 }, 3000);
             };
 
-            // Запускаем при загрузке страницы
-            if (document.readyState === 'loading') {
-                console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
-                document.addEventListener('DOMContentLoaded', () => {
-                    console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
+            // Запускаем при загрузке страницы (только если не страница attempt.php)
+            // На страницах attempt.php автосканирование не нужно, так как это страница прохождения теста
+            if (!url.includes('attempt.php')) {
+                if (document.readyState === 'loading') {
+                    console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
+                    document.addEventListener('DOMContentLoaded', () => {
+                        console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
+                        startAutoScan('загрузка страницы');
+                    });
+                } else {
+                    console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
                     startAutoScan('загрузка страницы');
-                });
+                }
             } else {
-                console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
-                startAutoScan('загрузка страницы');
+                console.log('[Auto Force Scan] Страница attempt.php - автосканирование отключено (это страница прохождения теста)');
             }
 
             // Слушаем изменения DOM для автоматического запуска при навигации
+            // Добавляем дебаунсинг, чтобы избежать бесконечного цикла
+            let domChangeTimeout = null;
+            let lastDomCheck = 0;
+            const DOM_CHECK_INTERVAL = 5000; // Проверяем не чаще раза в 5 секунд
+            
             const observer = new MutationObserver((mutations) => {
-                // Проверяем, появились ли новые ссылки или элементы
-                let hasNewContent = false;
-                mutations.forEach((mutation) => {
-                    if (mutation.addedNodes.length > 0) {
-                        hasNewContent = true;
-                    }
-                });
-
-                if (hasNewContent) {
-                    // Проверяем, есть ли ссылки на тесты или результаты
-                    const hasQuizLinks = document.querySelector('a[href*="quiz"], a[href*="review"], a[href*="attempt"]');
-                    if (hasQuizLinks) {
-                        // Проверяем состояние сканирования асинхронно
-                        chrome.storage.local.get(['autoScanInProgress']).then(scanState => {
-                            if (!scanState.autoScanInProgress) {
-                                startAutoScan('изменение DOM');
-                            } else {
-                                console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при изменении DOM');
-                            }
-                        });
-                    }
+                // Пропускаем изменения на страницах attempt.php (там не нужно автосканирование)
+                if (url.includes('attempt.php')) {
+                    return;
                 }
+                
+                // Дебаунсинг: проверяем не чаще раза в 5 секунд
+                const now = Date.now();
+                if (now - lastDomCheck < DOM_CHECK_INTERVAL) {
+                    return;
+                }
+                lastDomCheck = now;
+                
+                // Отменяем предыдущий таймер
+                if (domChangeTimeout) {
+                    clearTimeout(domChangeTimeout);
+                }
+                
+                // Устанавливаем новый таймер с задержкой
+                domChangeTimeout = setTimeout(() => {
+                    // Проверяем, появились ли новые ссылки или элементы
+                    let hasNewContent = false;
+                    mutations.forEach((mutation) => {
+                        if (mutation.addedNodes.length > 0) {
+                            hasNewContent = true;
+                        }
+                    });
+
+                    if (hasNewContent) {
+                        // Проверяем, есть ли ссылки на тесты или результаты
+                        const hasQuizLinks = document.querySelector('a[href*="quiz"], a[href*="review"], a[href*="attempt"]');
+                        if (hasQuizLinks) {
+                            // Проверяем состояние сканирования асинхронно
+                            chrome.storage.local.get(['autoScanInProgress']).then(scanState => {
+                                if (!scanState.autoScanInProgress) {
+                                    startAutoScan('изменение DOM');
+                                } else {
+                                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при изменении DOM');
+                                }
+                            });
+                        }
+                    }
+                }, 2000); // Задержка 2 секунды перед проверкой
             });
 
-            // Наблюдаем за изменениями в body
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
+            // Наблюдаем за изменениями в body (только если не страница attempt.php)
+            if (!url.includes('attempt.php')) {
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            }
 
             // Слушаем клики по ссылкам для автоматического запуска
             document.addEventListener('click', async (e) => {

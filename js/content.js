@@ -527,6 +527,26 @@
                     }
                 }
 
+                // Если на странице attempt.php, пытаемся найти ссылку на review страницу
+                if (currentUrl.includes('attempt.php') && totalScanned === 0) {
+                    console.log('[Force Auto Scan] Страница attempt.php, ищу ссылку на review...');
+                    const reviewLink = this.findReviewLinkFromAttempt(currentUrl);
+                    if (reviewLink) {
+                        console.log(`[Force Auto Scan] Найдена ссылка на review: ${reviewLink}`);
+                        try {
+                            const result = await this.scanReviewPageWithFetch(reviewLink);
+                            totalScanned++;
+                            totalFound += result.questions;
+                            totalSaved += result.saved;
+                        } catch (error) {
+                            console.error(`[Force Auto Scan] Ошибка при сканировании review:`, error);
+                        }
+                    } else {
+                        console.log('[Force Auto Scan] Ссылка на review не найдена на странице attempt.php');
+                    }
+                }
+
+                console.log(`[Force Auto Scan] Итоги сканирования: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);
                 this.showNotification(`Сканирование завершено! Просканировано: ${totalScanned}, найдено: ${totalFound}, сохранено: ${totalSaved}`, 'success');
             } catch (error) {
                 console.error('[Force Auto Scan] Критическая ошибка:', error);

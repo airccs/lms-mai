@@ -48,13 +48,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'saveAnswer') {
-        const { questionHash, answer, isCorrect, questionText } = request;
+        const { questionHash, answer, isCorrect, questionText, questionImage } = request;
         chrome.storage.local.set({
             [`answer_${questionHash}`]: {
                 answer: answer,
                 timestamp: Date.now(),
                 isCorrect: isCorrect,
-                questionText: questionText || null // Сохраняем текст вопроса
+                questionText: questionText || null, // Сохраняем текст вопроса
+                questionImage: questionImage || null // Сохраняем изображение вопроса
             }
         }, () => {
             sendResponse({ success: true });
@@ -151,44 +152,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.storage.local.get(null, (localData) => {
             console.log('[Background] Local data получен:', Object.keys(localData).length, 'ключей');
             
-            chrome.storage.sync.get(['questionStats'], (syncData) => {
-                console.log('[Background] Sync data получен');
-                
-                const savedAnswers = [];
-                
-                for (const [key, value] of Object.entries(localData)) {
-                    if (key.startsWith('answer_')) {
-                        const hash = key.replace('answer_', '');
-                        savedAnswers.push({
-                            hash: hash,
-                            answer: value.answer,
-                            timestamp: value.timestamp,
-                            isCorrect: value.isCorrect,
-                            questionText: value.questionText || 'Текст вопроса не сохранен'
-                        });
-                    }
+            const savedAnswers = [];
+            const statistics = {};
+            
+            // Извлекаем ответы и статистику из local storage
+            for (const [key, value] of Object.entries(localData)) {
+                if (key.startsWith('answer_')) {
+                    const hash = key.replace('answer_', '');
+                    savedAnswers.push({
+                        hash: hash,
+                        answer: value.answer,
+                        timestamp: value.timestamp,
+                        isCorrect: value.isCorrect,
+                        questionText: value.questionText || 'Текст вопроса не сохранен',
+                        questionImage: value.questionImage || null
+                    });
+                } else if (key.startsWith('stats_')) {
+                    const hash = key.replace('stats_', '');
+                    statistics[hash] = value;
                 }
+            }
 
-                console.log('[Background] Найдено сохраненных ответов:', savedAnswers.length);
+            console.log('[Background] Найдено сохраненных ответов:', savedAnswers.length);
+            console.log('[Background] Статистика по вопросам:', Object.keys(statistics).length);
 
-                const statistics = syncData.questionStats || {};
-                console.log('[Background] Статистика по вопросам:', Object.keys(statistics).length);
-
-                // Объединяем данные
-                const allData = savedAnswers.map(item => {
-                    const stats = statistics[item.hash] || {};
-                    return {
-                        ...item,
-                        statistics: stats
-                    };
-                });
-
-                // Сортируем по дате (новые первыми)
-                allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-                console.log('[Background] Отправка данных:', allData.length, 'записей');
-                sendResponse({ success: true, data: allData });
+            // Объединяем данные
+            const allData = savedAnswers.map(item => {
+                const stats = statistics[item.hash];
+                // Возвращаем statistics только если она существует и имеет данные
+                return {
+                    ...item,
+                    statistics: stats && stats.totalAttempts > 0 ? stats : null
+                };
             });
+
+            // Сортируем по дате (новые первыми)
+            allData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            console.log('[Background] Отправка данных:', allData.length, 'записей');
+            sendResponse({ success: true, data: allData });
         });
         return true;
     }

@@ -18,19 +18,25 @@ async function loadStatistics() {
         }
         document.getElementById('saved-answers-count').textContent = savedCount;
 
-        // Загружаем статистику из sync storage
-        const syncData = await chrome.storage.sync.get(['questionStats']);
-        const stats = syncData.questionStats || {};
-        const questionCount = Object.keys(stats).length;
-        document.getElementById('questions-count').textContent = questionCount;
-
-        // Подсчитываем общее количество попыток
+        // Загружаем статистику из local storage (статистика теперь хранится там)
+        const stats = {};
         let totalAttempts = 0;
-        for (const questionStats of Object.values(stats)) {
-            if (questionStats.totalAttempts) {
-                totalAttempts += questionStats.totalAttempts;
+        
+        for (const key of Object.keys(localData)) {
+            if (key.startsWith('stats_')) {
+                const questionHash = key.replace('stats_', '');
+                const questionStats = localData[key];
+                if (questionStats && typeof questionStats === 'object') {
+                    stats[questionHash] = questionStats;
+                    if (questionStats.totalAttempts) {
+                        totalAttempts += questionStats.totalAttempts;
+                    }
+                }
             }
         }
+        
+        const questionCount = Object.keys(stats).length;
+        document.getElementById('questions-count').textContent = questionCount;
         document.getElementById('total-attempts').textContent = totalAttempts;
 
     } catch (e) {

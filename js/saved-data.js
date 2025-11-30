@@ -62,6 +62,13 @@ function displayData(data) {
         const accuracy = stats.totalAttempts > 0 ? 
             Math.round((stats.correctAttempts / stats.totalAttempts) * 100) : null;
 
+        // Добавляем изображение если есть
+        console.log(`[displayData] Вопрос #${index + 1}, questionImage:`, item.questionImage ? 'есть (' + item.questionImage.length + ' байт)' : 'нет');
+        const imageHtml = item.questionImage ? 
+            `<div class="image-container">
+                <img src="${item.questionImage}" alt="Изображение вопроса" class="question-image" style="max-width: 100% !important; max-height: 200px !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 10px auto !important;">
+            </div>` : '';
+
         return `
             <div class="data-item" data-hash="${escapeHtml(item.hash)}">
                 <div class="data-item-header">
@@ -76,6 +83,7 @@ function displayData(data) {
                     </div>
                     ${correctBadge}
                 </div>
+                ${imageHtml}
                 <div class="data-item-question">
                     <strong>Вопрос:</strong><br>
                     ${escapeHtml(item.questionText)}
@@ -189,6 +197,28 @@ function exportData() {
     URL.revokeObjectURL(url);
 }
 
+async function startAutoScan() {
+    const btn = document.getElementById('auto-scan-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Запуск...';
+
+    try {
+        // Открываем новую вкладку для автосканирования
+        const scanUrl = chrome.runtime.getURL('html/auto-scan.html');
+        window.open(scanUrl, '_blank');
+        
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '🤖 Автосканирование тестов';
+        }, 1000);
+    } catch (error) {
+        console.error('Error starting auto scan:', error);
+        alert('Ошибка запуска автосканирования: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = '🤖 Автосканирование тестов';
+    }
+}
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     // Поиск
@@ -232,6 +262,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clearAllBtn) {
         clearAllBtn.addEventListener('click', () => {
             clearAllData();
+        });
+    }
+
+    // Кнопка автосканирования
+    const autoScanBtn = document.getElementById('auto-scan-btn');
+    if (autoScanBtn) {
+        autoScanBtn.addEventListener('click', () => {
+            startAutoScan();
         });
     }
 

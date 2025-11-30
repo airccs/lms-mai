@@ -1,0 +1,8 @@
+node_modules/
+quiz_data.db
+quiz_data.db-journal
+*.log
+.env
+.DS_Store
+# Не игнорируем саму папку server
+

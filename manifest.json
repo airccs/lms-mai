@@ -1,7 +1,7 @@
 {
    "manifest_version": 3,
    "name": "LMS MAI Quiz Solver",
-   "version": "1.0.2",
+   "version": "1.9.4",
    "description": "Помогает решать тесты в Moodle LMS",
    "author": "Ваше имя",
    "default_locale": "ru",
@@ -33,6 +33,7 @@
    "content_scripts": [
       {
          "matches": [
+            "*://lms.mai.ru/*",
             "*://*/*mod/quiz/*",
             "*://lms.mai.ru/*mod/quiz/*",
             "*://lms.mai.ru/*/mod/quiz/*"
@@ -47,7 +48,18 @@
    },
    "web_accessible_resources": [
       {
-         "resources": ["css/*", "html/js/*", "html/css/*", "html/saved-data.html", "js/saved-data.js"],
+         "resources": [
+            "css/*", 
+            "html/js/*", 
+            "html/css/*", 
+            "html/saved-data.html", 
+            "html/saved-data-react.html",
+            "html/auto-scan.html",
+            "html/auto-scan-react.html", 
+            "js/saved-data.js", 
+            "js/saved-data-react.js",
+            "js/auto-scan.js"
+         ],
          "matches": ["*://*/*"]
       }
    ]

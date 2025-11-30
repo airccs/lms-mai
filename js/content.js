@@ -2,44 +2,92 @@
 (function MoodleQuizSolverInit() {
     'use strict';
 
-    console.log('Moodle Quiz Solver: Content script loaded');
+    console.log('%c[Moodle Quiz Solver] Content script loaded', 'color: #2563eb; font-weight: bold; font-size: 16px;');
+    console.log('[Moodle Quiz Solver] URL:', window.location.href);
 
     class MoodleQuizSolver {
         constructor() {
+            console.log('%c[Moodle Quiz Solver] Constructor called', 'color: #16a34a; font-weight: bold;');
             this.questions = new Map();
             this.solvingInProgress = new Set();
             this.savedAnswers = new Map();
             this.statistics = new Map();
             this.isProcessingReview = false; // Флаг для предотвращения повторных вызовов
+            this.isForceScanning = false; // Флаг для принудительного автосканирования
             this.init();
         }
 
         async init() {
+            console.log('[Moodle Quiz Solver] Init started');
             await this.loadSavedAnswers();
             await this.loadStatistics();
             
+            console.log('[Moodle Quiz Solver] Checking if review page...');
             // Проверяем, находимся ли мы на странице результатов
             if (this.isReviewPage()) {
+                console.log('[Moodle Quiz Solver] Review page detected, processing...');
                 // На страницах результатов не включаем observeDOM, чтобы избежать бесконечного цикла
                 this.processReviewPage();
             } else {
+                console.log('[Moodle Quiz Solver] Not a review page, parsing questions...');
                 this.parseQuestions();
                 this.addSolveButtons();
                 this.setupAutoSave(); // Настраиваем автоматическое сохранение
                 this.observeDOM(); // Включаем observeDOM только на страницах вопросов
             }
+            
+            console.log('[Moodle Quiz Solver] Setting up auto force scan...');
+            // Автоматически запускаем принудительное автосканирование при взаимодействии с LMS
+            this.setupAutoForceScan();
+            console.log('[Moodle Quiz Solver] Init completed');
+        }
+
+        async safeSendMessage(message) {
+            // Безопасная отправка сообщений в background script с обработкой ошибок
+            try {
+                // Проверяем, доступен ли chrome.runtime
+                if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
+                    console.warn('[safeSendMessage] chrome.runtime недоступен');
+                    return null;
+                }
+
+                const response = await chrome.runtime.sendMessage(message);
+                return response;
+            } catch (error) {
+                // Игнорируем ошибку "Could not establish connection" - это нормально, если background script не загружен
+                if (error.message && error.message.includes('Could not establish connection')) {
+                    console.warn('[safeSendMessage] Background script не готов, игнорирую:', message.action);
+                    return null;
+                }
+                // Для других ошибок логируем
+                console.error('[safeSendMessage] Ошибка при отправке сообщения:', error, message);
+                return null;
+            }
         }
 
         isReviewPage() {
+            // Проверяем URL - должна быть страница результатов, а не выбора теста
+            const url = window.location.href;
+            if (url.includes('/mod/quiz/view.php')) {
+                // Это страница выбора теста, не страница результатов
+                return false;
+            }
+            
+            // Проверяем наличие вопросов - без них это не страница результатов
+            const hasQuestions = document.querySelectorAll('.que').length > 0;
+            if (!hasQuestions) {
+                return false;
+            }
+            
             // Проверяем наличие элементов, характерных для страницы результатов
             const hasReviewElements = document.querySelector('#page-mod-quiz-review') !== null ||
                    document.querySelector('.quizreviewsummary') !== null ||
                    document.querySelector('.quiz-summary') !== null ||
                    document.querySelector('.quizresults') !== null;
             
-            const hasReviewUrl = window.location.href.includes('review') ||
-                   window.location.href.includes('summary') ||
-                   window.location.href.includes('result');
+            const hasReviewUrl = url.includes('review') ||
+                   url.includes('summary') ||
+                   url.includes('result');
             
             const hasCorrectnessIndicators = document.querySelector('.que.correct') !== null ||
                    document.querySelector('.que.incorrect') !== null ||
@@ -97,8 +145,11 @@
                         }
 
                         if (userAnswer && isCorrect !== null) {
-                            // Сохраняем ответ с правильным isCorrect и текстом вопроса
-                            const wasUpdated = await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text);
+                            // Извлекаем изображение из вопроса
+                            const questionImage = await this.extractQuestionImage(element);
+                            
+                            // Сохраняем ответ с правильным isCorrect, текстом вопроса и изображением
+                            const wasUpdated = await this.saveAnswer(question.hash, userAnswer, isCorrect, question.text, questionImage);
                             if (wasUpdated) updatedCount++;
                             await this.updateStatistics(question.hash, userAnswer, isCorrect);
                             
@@ -148,11 +199,13 @@
                             if (isCorrect !== null && userAnswer) {
                                 // Обновляем только если статус изменился или был неизвестен
                                 if (savedData.isCorrect !== isCorrect || savedData.isCorrect === null) {
+                                    const questionImage = await this.extractQuestionImage(element);
                                     await this.saveAnswer(
                                         question.hash, 
                                         userAnswer || savedData.answer, 
                                         isCorrect, 
-                                        question.text || savedData.questionText
+                                        question.text || savedData.questionText,
+                                        questionImage || savedData.questionImage
                                     );
                                     updatedCount++;
                                     console.log(`[Review Scanner] Обновлен ответ для hash: ${question.hash}, isCorrect: ${isCorrect}`);
@@ -180,33 +233,51 @@
             // Добавляем кнопку повторного сканирования
             const rescanBtn = document.createElement('button');
             rescanBtn.id = 'quiz-solver-rescan-btn';
-            rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+            rescanBtn.innerHTML = 'Повторно сканировать результаты';
             rescanBtn.style.cssText = `
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
-                padding: 12px 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                border-radius: 8px;
+                padding: 10px 18px;
+                background: white;
+                color: #111827;
+                border: 1px solid #2563eb;
+                border-radius: 6px;
                 cursor: pointer;
-                font-size: 14px;
-                font-weight: bold;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                font-size: 13px;
+                font-weight: 600;
+                box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
                 z-index: 100002;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                transition: all 0.3s ease;
+                transition: all 0.2s ease;
             `;
 
             rescanBtn.addEventListener('mouseenter', () => {
-                rescanBtn.style.transform = 'translateY(-2px)';
-                rescanBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
+                if (!rescanBtn.disabled) {
+                    rescanBtn.style.background = '#f3f4f6';
+                    rescanBtn.style.boxShadow = '0 2px 4px -1px rgba(0, 0, 0, 0.1)';
+                }
             });
 
             rescanBtn.addEventListener('mouseleave', () => {
-                rescanBtn.style.transform = 'translateY(0)';
-                rescanBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+                if (!rescanBtn.disabled) {
+                    rescanBtn.style.background = 'white';
+                    rescanBtn.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }
+            });
+
+            rescanBtn.addEventListener('mousedown', () => {
+                if (!rescanBtn.disabled) {
+                    rescanBtn.style.background = '#e5e7eb';
+                    rescanBtn.style.transform = 'scale(0.98)';
+                }
+            });
+
+            rescanBtn.addEventListener('mouseup', () => {
+                if (!rescanBtn.disabled) {
+                    rescanBtn.style.background = '#f3f4f6';
+                    rescanBtn.style.transform = 'scale(1)';
+                }
             });
 
             rescanBtn.addEventListener('click', async () => {
@@ -214,19 +285,865 @@
                     return; // Уже выполняется
                 }
                 rescanBtn.disabled = true;
-                rescanBtn.innerHTML = '⏳ Сканирование...';
+                rescanBtn.innerHTML = 'Сканирование...';
+                rescanBtn.style.opacity = '0.5';
+                rescanBtn.style.cursor = 'not-allowed';
+                rescanBtn.style.background = '#f9fafb';
+                rescanBtn.style.borderColor = '#d1d5db';
+                rescanBtn.style.color = '#9ca3af';
                 try {
                     await this.processReviewPage();
                 } finally {
                     rescanBtn.disabled = false;
-                    rescanBtn.innerHTML = '🔄 Повторно сканировать результаты';
+                    rescanBtn.innerHTML = 'Повторно сканировать результаты';
+                    rescanBtn.style.opacity = '1';
+                    rescanBtn.style.cursor = 'pointer';
+                    rescanBtn.style.background = 'white';
+                    rescanBtn.style.borderColor = '#2563eb';
+                    rescanBtn.style.color = '#111827';
                 }
             });
 
             document.body.appendChild(rescanBtn);
+
+            // Добавляем кнопку для принудительного автосканирования
+            this.addForceScanButton();
+        }
+
+        addForceScanButton() {
+            // Удаляем предыдущую кнопку, если есть
+            const existing = document.getElementById('quiz-solver-force-scan-btn');
+            if (existing) existing.remove();
+
+            // Добавляем кнопку принудительного автосканирования
+            const forceScanBtn = document.createElement('button');
+            forceScanBtn.id = 'quiz-solver-force-scan-btn';
+            forceScanBtn.innerHTML = 'Принудительное автосканирование';
+            forceScanBtn.style.cssText = `
+                position: fixed;
+                bottom: 70px;
+                right: 20px;
+                padding: 10px 18px;
+                background: white;
+                color: #111827;
+                border: 1px solid #2563eb;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 600;
+                box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+                z-index: 100002;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                transition: all 0.2s ease;
+            `;
+
+            forceScanBtn.addEventListener('mouseenter', () => {
+                if (!forceScanBtn.disabled) {
+                    forceScanBtn.style.background = '#f3f4f6';
+                    forceScanBtn.style.boxShadow = '0 2px 4px -1px rgba(0, 0, 0, 0.1)';
+                }
+            });
+
+            forceScanBtn.addEventListener('mouseleave', () => {
+                if (!forceScanBtn.disabled) {
+                    forceScanBtn.style.background = 'white';
+                    forceScanBtn.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }
+            });
+
+            forceScanBtn.addEventListener('mousedown', () => {
+                if (!forceScanBtn.disabled) {
+                    forceScanBtn.style.background = '#e5e7eb';
+                    forceScanBtn.style.transform = 'scale(0.98)';
+                }
+            });
+
+            forceScanBtn.addEventListener('mouseup', () => {
+                if (!forceScanBtn.disabled) {
+                    forceScanBtn.style.background = '#f3f4f6';
+                    forceScanBtn.style.transform = 'scale(1)';
+                }
+            });
+
+            forceScanBtn.addEventListener('click', async () => {
+                if (this.isForceScanning) {
+                    return;
+                }
+                forceScanBtn.disabled = true;
+                forceScanBtn.innerHTML = 'Сканирование...';
+                forceScanBtn.style.opacity = '0.5';
+                forceScanBtn.style.cursor = 'not-allowed';
+                forceScanBtn.style.background = '#f9fafb';
+                forceScanBtn.style.borderColor = '#d1d5db';
+                forceScanBtn.style.color = '#9ca3af';
+                try {
+                    await this.forceAutoScan();
+                } finally {
+                    forceScanBtn.disabled = false;
+                    forceScanBtn.innerHTML = 'Принудительное автосканирование';
+                    forceScanBtn.style.opacity = '1';
+                    forceScanBtn.style.cursor = 'pointer';
+                    forceScanBtn.style.background = 'white';
+                    forceScanBtn.style.borderColor = '#2563eb';
+                    forceScanBtn.style.color = '#111827';
+                }
+            });
+
+            document.body.appendChild(forceScanBtn);
+        }
+
+        async forceAutoScan() {
+            // Принудительное автосканирование без открытия вкладок
+            // Использует ту же логику, что и auto-scan.js, но через fetch
+            if (this.isForceScanning) {
+                console.log('[Force Auto Scan] Сканирование уже выполняется');
+                return;
+            }
+
+            this.isForceScanning = true;
+            this.showNotification('Начинаю принудительное автосканирование...', 'info');
+
+            try {
+                let totalScanned = 0;
+                let totalFound = 0;
+                let totalSaved = 0;
+
+                const currentUrl = window.location.href;
+                console.log(`[Force Auto Scan] Текущий URL: ${currentUrl}`);
+
+                // Если это главная страница или список курсов, ищем курсы
+                if (currentUrl.includes('lms.mai.ru') && 
+                    (currentUrl === 'https://lms.mai.ru/' || 
+                     currentUrl.includes('lms.mai.ru/my') ||
+                     currentUrl.includes('lms.mai.ru/?redirect=0'))) {
+                    
+                    console.log('[Force Auto Scan] Главная страница, ищу курсы...');
+                    const courseLinks = await this.findCoursesOnPage();
+                    
+                    if (courseLinks.length > 0) {
+                        console.log(`[Force Auto Scan] Найдено ${courseLinks.length} курсов`);
+                        this.showNotification(`Найдено ${courseLinks.length} курсов. Сканирую...`, 'info');
+                        
+                        for (let i = 0; i < courseLinks.length; i++) {
+                            const courseUrl = courseLinks[i];
+                            console.log(`[Force Auto Scan] [${i + 1}/${courseLinks.length}] Обрабатываю курс: ${courseUrl}`);
+                            
+                            const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
+                            console.log(`[Force Auto Scan] В курсе найдено ${reviewLinks.length} ссылок на результаты`);
+                            
+                            // Сканируем все найденные результаты
+                            for (const reviewLink of reviewLinks) {
+                                try {
+                                    const result = await this.scanReviewPageWithFetch(reviewLink);
+                                    totalScanned++;
+                                    totalFound += result.questions;
+                                    totalSaved += result.saved;
+                                } catch (error) {
+                                    console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                                }
+                                
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                            }
+                        }
+                    }
+                }
+
+                // Ищем прямые ссылки на результаты на текущей странице
+                const directReviewLinks = this.findDirectReviewLinksOnPage();
+                console.log(`[Force Auto Scan] Найдено ${directReviewLinks.length} прямых ссылок на результаты`);
+                
+                for (const link of directReviewLinks) {
+                    try {
+                        const result = await this.scanReviewPageWithFetch(link);
+                        totalScanned++;
+                        totalFound += result.questions;
+                        totalSaved += result.saved;
+                    } catch (error) {
+                        console.error(`[Force Auto Scan] Ошибка при сканировании ${link}:`, error);
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                // Ищем ссылки на тесты и находим в них результаты
+                const quizLinks = this.findQuizLinksOnPage();
+                console.log(`[Force Auto Scan] Найдено ${quizLinks.length} ссылок на тесты`);
+                
+                for (const quizUrl of quizLinks) {
+                    const reviewLinks = await this.findReviewLinksFromQuiz(quizUrl);
+                    console.log(`[Force Auto Scan] В тесте найдено ${reviewLinks.length} ссылок на результаты`);
+                    
+                    for (const reviewLink of reviewLinks) {
+                        try {
+                            const result = await this.scanReviewPageWithFetch(reviewLink);
+                            totalScanned++;
+                            totalFound += result.questions;
+                            totalSaved += result.saved;
+                        } catch (error) {
+                            console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                        }
+                        
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+
+                this.showNotification(`Сканирование завершено! Просканировано: ${totalScanned}, найдено: ${totalFound}, сохранено: ${totalSaved}`, 'success');
+            } catch (error) {
+                console.error('[Force Auto Scan] Критическая ошибка:', error);
+                this.showNotification('Ошибка при автосканировании: ' + error.message, 'error');
+            } finally {
+                this.isForceScanning = false;
+            }
+        }
+
+        async scanRecursively(url, depth = 0, visited = new Set()) {
+            // Рекурсивное сканирование всех уровней
+            const MAX_DEPTH = 3; // Максимальная глубина: главная → курсы → тесты → результаты
+            const MAX_LINKS_PER_LEVEL = 10; // Максимум ссылок на каждом уровне для избежания перегрузки
+
+            if (depth > MAX_DEPTH || visited.has(url)) {
+                console.log(`[scanRecursively] Пропуск: depth=${depth}, visited=${visited.has(url)}`);
+                return { scanned: 0, found: 0, saved: 0 };
+            }
+
+            visited.add(url);
+            console.log(`%c[scanRecursively] Уровень ${depth}, сканирую: ${url}`, 'color: #2563eb; font-weight: bold;');
+
+            let totalScanned = 0;
+            let totalFound = 0;
+            let totalSaved = 0;
+
+            try {
+                // Загружаем страницу
+                const response = await fetch(url, {
+                    credentials: 'include',
+                    headers: { 'Accept': 'text/html' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Проверяем, это страница результатов?
+                const isReviewPage = doc.querySelector('.reviewoptions, #page-mod-quiz-review, .que');
+                if (isReviewPage && doc.querySelectorAll('.que').length > 0) {
+                    // Это страница результатов - сканируем её
+                    console.log(`[scanRecursively] Найдена страница результатов на уровне ${depth}`);
+                    const result = await this.scanReviewPageFromHTML(html, url);
+                    return {
+                        scanned: 1,
+                        found: result.questions,
+                        saved: result.saved
+                    };
+                }
+
+                // Ищем ссылки на следующем уровне
+                let linksToScan = [];
+
+                if (depth === 0) {
+                    // Главная страница - ищем ссылки на курсы
+                    console.log('[scanRecursively] Главная страница, ищу ссылки на курсы...');
+                    
+                    // Расширенные селекторы для поиска ссылок на курсы
+                    const courseSelectors = [
+                        'a[href*="course/view"]',
+                        'a[href*="course/index"]',
+                        'a[href*="/course/"]',
+                        '.coursebox a',
+                        '.course a',
+                        '[data-course-id] a',
+                        '.coursename a'
+                    ];
+                    
+                    const foundLinks = new Set();
+                    
+                    courseSelectors.forEach(selector => {
+                        doc.querySelectorAll(selector).forEach(link => {
+                            let href = link.getAttribute('href');
+                            if (href && !href.includes('#') && !href.includes('javascript:')) {
+                                // Пропускаем ссылки на категории и другие разделы
+                                if (href.includes('category') || href.includes('search') || href.includes('login')) {
+                                    return;
+                                }
+                                
+                                if (!href.startsWith('http')) {
+                                    href = new URL(href, url).href;
+                                }
+                                
+                                // Проверяем, что это действительно ссылка на курс
+                                if (href.includes('course') || href.includes('id=')) {
+                                    const urlWithLang = href.includes('lang=') ? href : 
+                                                      (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                                    foundLinks.add(urlWithLang);
+                                }
+                            }
+                        });
+                    });
+                    
+                    linksToScan = Array.from(foundLinks);
+                    console.log(`[scanRecursively] На главной странице найдено ${linksToScan.length} ссылок на курсы`);
+                } else if (depth === 1) {
+                    // Страница курса - ищем ссылки на тесты
+                    console.log('[scanRecursively] Страница курса, ищу ссылки на тесты...');
+                    doc.querySelectorAll('a[href*="quiz"], a[href*="mod/quiz"]').forEach(link => {
+                        let href = link.getAttribute('href');
+                        if (href && !href.includes('#')) {
+                            if (!href.startsWith('http')) {
+                                href = new URL(href, url).href;
+                            }
+                            const urlWithLang = href.includes('lang=') ? href : 
+                                              (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                            linksToScan.push(urlWithLang);
+                        }
+                    });
+                } else if (depth === 2) {
+                    // Страница теста - ищем ссылки на результаты
+                    console.log('[scanRecursively] Страница теста, ищу ссылки на результаты...');
+                    doc.querySelectorAll('a[href*="review"], a[href*="attempt"]').forEach(link => {
+                        let href = link.getAttribute('href');
+                        if (href && !href.includes('#')) {
+                            if (!href.startsWith('http')) {
+                                href = new URL(href, url).href;
+                            }
+                            const urlWithLang = href.includes('lang=') ? href : 
+                                              (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                            linksToScan.push(urlWithLang);
+                        }
+                    });
+                }
+
+                // Ограничиваем количество ссылок для сканирования
+                linksToScan = linksToScan.slice(0, MAX_LINKS_PER_LEVEL);
+                console.log(`[scanRecursively] Найдено ${linksToScan.length} ссылок на уровне ${depth}`);
+
+                // Рекурсивно сканируем найденные ссылки
+                for (let i = 0; i < linksToScan.length; i++) {
+                    const link = linksToScan[i];
+                    try {
+                        const result = await this.scanRecursively(link, depth + 1, visited);
+                        totalScanned += result.scanned;
+                        totalFound += result.found;
+                        totalSaved += result.saved;
+                    } catch (error) {
+                        console.error(`[scanRecursively] Ошибка при сканировании ${link}:`, error);
+                    }
+
+                    // Задержка между запросами
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+            } catch (error) {
+                console.error(`[scanRecursively] Ошибка при загрузке ${url}:`, error);
+            }
+
+            return { scanned: totalScanned, found: totalFound, saved: totalSaved };
+        }
+
+        async scanReviewPageFromHTML(html, url) {
+            // Сканирует страницу результатов из HTML
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            const beforeData = await chrome.storage.local.get(null);
+            const beforeCount = Object.keys(beforeData).filter(key => key.startsWith('answer_')).length;
+
+            const questionElements = doc.querySelectorAll('.que');
+            if (questionElements.length === 0) {
+                return { questions: 0, saved: 0 };
+            }
+
+            let savedCount = 0;
+            for (const element of questionElements) {
+                try {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = element.outerHTML;
+                    const tempElement = tempDiv.firstElementChild;
+
+                    const baseUrl = new URL(url).origin;
+                    tempElement.querySelectorAll('img').forEach(img => {
+                        if (img.src && !img.src.startsWith('http')) {
+                            img.src = new URL(img.src, baseUrl).href;
+                        }
+                    });
+
+                    const question = this.parseQuestion(tempElement, 0);
+                    if (!question) continue;
+
+                    const isCorrect = this.determineCorrectnessFromReview(tempElement);
+                    const userAnswer = this.extractUserAnswerFromReview(tempElement, question);
+
+                    if (userAnswer && isCorrect !== null) {
+                        let questionImage = null;
+                        try {
+                            questionImage = await this.extractQuestionImage(tempElement);
+                        } catch (e) {
+                            console.warn('[scanReviewPageFromHTML] Не удалось извлечь изображение:', e);
+                        }
+
+                        const wasUpdated = await this.saveAnswer(
+                            question.hash,
+                            userAnswer,
+                            isCorrect,
+                            question.text,
+                            questionImage
+                        );
+
+                        if (wasUpdated) {
+                            savedCount++;
+                        }
+
+                        await this.updateStatistics(question.hash, userAnswer, isCorrect);
+                    }
+                } catch (e) {
+                    console.error('[scanReviewPageFromHTML] Ошибка при обработке вопроса:', e);
+                }
+            }
+
+            const afterData = await chrome.storage.local.get(null);
+            const afterCount = Object.keys(afterData).filter(key => key.startsWith('answer_')).length;
+            const actuallySaved = afterCount - beforeCount;
+
+            return {
+                questions: questionElements.length,
+                saved: Math.max(actuallySaved, savedCount)
+            };
+        }
+
+        findCoursesOnPage() {
+            // Находит ссылки на курсы на текущей странице
+            const courses = [];
+            const links = document.querySelectorAll('a[href*="/course/view.php"], a[href*="/course/"]');
+            links.forEach(a => {
+                if (a.href && a.href.includes('/course/') && !courses.includes(a.href)) {
+                    const urlWithLang = a.href.includes('lang=') ? a.href : 
+                                      (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
+                    courses.push(urlWithLang);
+                }
+            });
+            return courses;
+        }
+
+        async findReviewLinksFromCourse(courseUrl) {
+            // Находит все ссылки на результаты тестов в курсе через fetch
+            try {
+                const urlWithLang = courseUrl.includes('lang=') ? courseUrl : 
+                                  (courseUrl.includes('?') ? `${courseUrl}&lang=ru` : `${courseUrl}?lang=ru`);
+                
+                const response = await fetch(urlWithLang, {
+                    credentials: 'include',
+                    headers: { 'Accept': 'text/html' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Находим ссылки на тесты
+                const quizLinks = [];
+                doc.querySelectorAll('a[href*="/mod/quiz/view.php"]').forEach(a => {
+                    if (a.href && !quizLinks.includes(a.href)) {
+                        const urlWithLang = a.href.includes('lang=') ? a.href : 
+                                          (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
+                        quizLinks.push(urlWithLang);
+                    }
+                });
+
+                // Для каждого теста находим ссылки на результаты
+                const allReviewLinks = [];
+                for (const quizUrl of quizLinks) {
+                    const reviewLinks = await this.findReviewLinksFromQuiz(quizUrl);
+                    allReviewLinks.push(...reviewLinks);
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Небольшая задержка
+                }
+
+                return allReviewLinks;
+            } catch (error) {
+                console.error(`[findReviewLinksFromCourse] Ошибка при обработке курса ${courseUrl}:`, error);
+                return [];
+            }
+        }
+
+        findDirectReviewLinksOnPage() {
+            // Находит прямые ссылки на результаты на текущей странице
+            const links = [];
+            document.querySelectorAll('a[href*="/mod/quiz/review.php"]').forEach(a => {
+                if (a.href && !links.includes(a.href)) {
+                    const urlWithLang = a.href.includes('lang=') ? a.href : 
+                                      (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
+                    links.push(urlWithLang);
+                }
+            });
+            return links;
+        }
+
+        findQuizLinksOnPage() {
+            // Находит ссылки на тесты на текущей странице
+            const links = [];
+            document.querySelectorAll('a[href*="/mod/quiz/view.php"]').forEach(a => {
+                if (a.href && !links.includes(a.href)) {
+                    const urlWithLang = a.href.includes('lang=') ? a.href : 
+                                      (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
+                    links.push(urlWithLang);
+                }
+            });
+            return links;
+        }
+
+        async findReviewLinksFromQuiz(quizUrl) {
+            // Находит ссылки на результаты теста через fetch
+            try {
+                const urlWithLang = quizUrl.includes('lang=') ? quizUrl : 
+                                  (quizUrl.includes('?') ? `${quizUrl}&lang=ru` : `${quizUrl}?lang=ru`);
+                
+                const response = await fetch(urlWithLang, {
+                    credentials: 'include',
+                    headers: { 'Accept': 'text/html' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Проверяем, пройден ли тест (есть ли ссылки на результаты)
+                const hasStartButton = doc.querySelector('input[value*="Начать"], button[value*="Начать"]');
+                const hasAttemptTable = doc.querySelector('.generaltable, table.attempts');
+                
+                // Если есть кнопка "Начать" и нет таблицы попыток - тест не пройден
+                if (hasStartButton && !hasAttemptTable) {
+                    console.log(`[findReviewLinksFromQuiz] Тест не пройден, пропускаю: ${quizUrl}`);
+                    return [];
+                }
+
+                // Ищем ссылки на результаты
+                const reviewLinks = [];
+                const baseUrl = new URL(urlWithLang).origin;
+                
+                doc.querySelectorAll('a[href*="review"], a[href*="attempt"]').forEach(link => {
+                    let href = link.getAttribute('href');
+                    if (href) {
+                        if (!href.startsWith('http')) {
+                            href = new URL(href, baseUrl).href;
+                        }
+                        const urlWithLang = href.includes('lang=') ? href : 
+                                          (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                        if (!reviewLinks.includes(urlWithLang)) {
+                            reviewLinks.push(urlWithLang);
+                        }
+                    }
+                });
+
+                return reviewLinks;
+            } catch (error) {
+                console.error(`[findReviewLinksFromQuiz] Ошибка при обработке теста ${quizUrl}:`, error);
+                return [];
+            }
+        }
+
+        findAllReviewLinksOnPage() {
+            const links = new Set();
+            
+            console.log('[findAllReviewLinksOnPage] Начинаю поиск ссылок на странице...');
+            
+            // Ищем ссылки на результаты тестов и страницы тестов
+            const reviewSelectors = [
+                'a[href*="review"]',
+                'a[href*="attempt"]',
+                'a[href*="quiz"]',
+                'a[href*="course/view"]', // Добавляем ссылки на курсы
+                'a[href*="course/index"]'
+            ];
+
+            let totalFound = 0;
+            reviewSelectors.forEach(selector => {
+                const found = document.querySelectorAll(selector);
+                console.log(`[findAllReviewLinksOnPage] Селектор "${selector}": найдено ${found.length} ссылок`);
+                totalFound += found.length;
+                
+                found.forEach(link => {
+                    const href = link.href;
+                    if (href && !href.includes('#')) {
+                        // Включаем ссылки на результаты (review, attempt)
+                        if (href.includes('review') || href.includes('attempt')) {
+                            const urlWithLang = href.includes('lang=') ? href : 
+                                              (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                            links.add(urlWithLang);
+                            console.log(`[findAllReviewLinksOnPage] Добавлена ссылка на результат: ${urlWithLang}`);
+                        }
+                        // Включаем ссылки на страницы тестов (view.php), они будут обработаны отдельно
+                        else if (href.includes('quiz') && (href.includes('view.php') || href.includes('id='))) {
+                            const urlWithLang = href.includes('lang=') ? href : 
+                                              (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                            links.add(urlWithLang);
+                            console.log(`[findAllReviewLinksOnPage] Добавлена ссылка на тест: ${urlWithLang}`);
+                        }
+                        // Включаем ссылки на курсы (для рекурсивного сканирования)
+                        else if (href.includes('course/view') || href.includes('course/index')) {
+                            const urlWithLang = href.includes('lang=') ? href : 
+                                              (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                            links.add(urlWithLang);
+                            console.log(`[findAllReviewLinksOnPage] Добавлена ссылка на курс: ${urlWithLang}`);
+                        }
+                    }
+                });
+            });
+
+            const result = Array.from(links);
+            console.log(`[findAllReviewLinksOnPage] Всего найдено ссылок: ${totalFound}, добавлено в список: ${result.length}`);
+            
+            return result;
+        }
+
+        async scanReviewPageWithFetch(url) {
+            try {
+                // Загружаем HTML страницы через fetch
+                const response = await fetch(url, {
+                    credentials: 'include', // Включаем cookies для авторизации
+                    headers: {
+                        'Accept': 'text/html'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const html = await response.text();
+                
+                // Парсим HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Проверяем, что это страница результатов
+                const isReviewPage = doc.querySelector('.reviewoptions, #page-mod-quiz-review');
+                
+                // Если это не страница результатов, но это страница теста, ищем ссылки на результаты
+                if (!isReviewPage) {
+                    // Проверяем, это страница теста?
+                    const isQuizPage = doc.querySelector('#page-mod-quiz-view, .quizinfo, [data-region="quiz-info"]');
+                    if (isQuizPage) {
+                        console.log('[Force Auto Scan] Это страница теста, ищу ссылки на результаты...');
+                        
+                        // Ищем ссылки на результаты на странице теста
+                        const reviewLinks = [];
+                        const baseUrl = new URL(url).origin;
+                        
+                        // Ищем ссылки на результаты
+                        doc.querySelectorAll('a[href*="review"], a[href*="attempt"]').forEach(link => {
+                            let href = link.getAttribute('href');
+                            if (href) {
+                                // Преобразуем относительный URL в абсолютный
+                                if (!href.startsWith('http')) {
+                                    href = new URL(href, baseUrl).href;
+                                }
+                                // Добавляем lang=ru если его нет
+                                const urlWithLang = href.includes('lang=') ? href : 
+                                                  (href.includes('?') ? `${href}&lang=ru` : `${href}?lang=ru`);
+                                reviewLinks.push(urlWithLang);
+                            }
+                        });
+                        
+                        if (reviewLinks.length === 0) {
+                            throw new Error('На странице теста не найдено ссылок на результаты');
+                        }
+                        
+                        console.log(`[Force Auto Scan] Найдено ${reviewLinks.length} ссылок на результаты, сканирую их...`);
+                        
+                        // Сканируем все найденные ссылки на результаты
+                        let totalQuestions = 0;
+                        let totalSaved = 0;
+                        
+                        for (const reviewLink of reviewLinks) {
+                            try {
+                                const result = await this.scanReviewPageWithFetch(reviewLink);
+                                totalQuestions += result.questions;
+                                totalSaved += result.saved;
+                            } catch (e) {
+                                console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, e);
+                            }
+                            
+                            // Небольшая задержка между запросами
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                        
+                        return {
+                            questions: totalQuestions,
+                            saved: totalSaved
+                        };
+                    } else {
+                        throw new Error('Не страница результатов теста и не страница теста');
+                    }
+                }
+
+                // Используем общую функцию для сканирования страницы результатов
+                return await this.scanReviewPageFromHTML(html, url);
+            } catch (error) {
+                console.error('[Force Auto Scan] Ошибка при сканировании страницы:', error);
+                throw error;
+            }
+        }
+
+        setupAutoForceScan() {
+            // Автоматически запускаем принудительное автосканирование при взаимодействии с LMS
+            const url = window.location.href;
+            
+            console.log('%c[Auto Force Scan] Настройка автоматического сканирования', 'color: #2563eb; font-weight: bold; font-size: 14px;');
+            console.log('[Auto Force Scan] URL:', url);
+            
+            // Проверяем, что мы на сайте LMS
+            if (!url.includes('lms.mai.ru')) {
+                console.log('[Auto Force Scan] Не сайт LMS, пропускаю настройку');
+                return;
+            }
+            
+            console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
+
+            // Защита от слишком частых запусков
+            let lastScanTime = 0;
+            const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
+
+            // Запускаем сканирование с задержкой после загрузки страницы
+            let scanTimeout = null;
+            const startAutoScan = (reason = 'неизвестно') => {
+                console.log(`[Auto Force Scan] Запрос на запуск сканирования (причина: ${reason})`);
+                
+                // Проверяем, прошло ли достаточно времени с последнего сканирования
+                const now = Date.now();
+                if (now - lastScanTime < MIN_SCAN_INTERVAL) {
+                    const remaining = Math.ceil((MIN_SCAN_INTERVAL - (now - lastScanTime)) / 1000);
+                    console.log(`[Auto Force Scan] Слишком рано для повторного сканирования, осталось ${remaining} сек...`);
+                    return;
+                }
+
+                // Проверяем, не выполняется ли уже сканирование
+                if (this.isForceScanning) {
+                    console.log('[Auto Force Scan] Сканирование уже выполняется, пропускаю...');
+                    return;
+                }
+
+                if (this.isProcessingReview) {
+                    console.log('[Auto Force Scan] Обработка результатов уже выполняется, пропускаю...');
+                    return;
+                }
+
+                // Отменяем предыдущий таймер, если есть
+                if (scanTimeout) {
+                    clearTimeout(scanTimeout);
+                    console.log('[Auto Force Scan] Отменен предыдущий таймер');
+                }
+                
+                console.log('[Auto Force Scan] Установлен таймер на 3 секунды...');
+                
+                // Запускаем сканирование через 3 секунды после последнего взаимодействия
+                scanTimeout = setTimeout(async () => {
+                    if (!this.isForceScanning && !this.isProcessingReview) {
+                        lastScanTime = Date.now();
+                        console.log('%c[Auto Force Scan] 🚀 Автоматический запуск сканирования...', 'color: #2563eb; font-weight: bold; font-size: 14px;');
+                        this.showNotification('Автоматическое сканирование запущено...', 'info');
+                        try {
+                            await this.forceAutoScan();
+                        } catch (error) {
+                            console.error('[Auto Force Scan] Ошибка при автоматическом сканировании:', error);
+                            this.showNotification('Ошибка при автоматическом сканировании: ' + error.message, 'error');
+                        }
+                    } else {
+                        console.log('[Auto Force Scan] Сканирование отменено (уже выполняется)');
+                    }
+                }, 3000);
+            };
+
+            // Запускаем при загрузке страницы
+            if (document.readyState === 'loading') {
+                console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
+                document.addEventListener('DOMContentLoaded', () => {
+                    console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
+                    startAutoScan('загрузка страницы');
+                });
+            } else {
+                console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
+                startAutoScan('загрузка страницы');
+            }
+
+            // Слушаем изменения DOM для автоматического запуска при навигации
+            const observer = new MutationObserver((mutations) => {
+                // Проверяем, появились ли новые ссылки или элементы
+                let hasNewContent = false;
+                mutations.forEach((mutation) => {
+                    if (mutation.addedNodes.length > 0) {
+                        hasNewContent = true;
+                    }
+                });
+
+                if (hasNewContent) {
+                    // Проверяем, есть ли ссылки на тесты или результаты
+                    const hasQuizLinks = document.querySelector('a[href*="quiz"], a[href*="review"], a[href*="attempt"]');
+                    if (hasQuizLinks) {
+                        startAutoScan();
+                    }
+                }
+            });
+
+            // Наблюдаем за изменениями в body
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            // Слушаем клики по ссылкам для автоматического запуска
+            document.addEventListener('click', (e) => {
+                const link = e.target.closest('a');
+                if (link && (link.href.includes('quiz') || link.href.includes('review') || link.href.includes('attempt'))) {
+                    startAutoScan();
+                }
+            }, true);
+
+            // Слушаем изменения URL (для SPA навигации)
+            let lastUrl = location.href;
+            new MutationObserver(() => {
+                const url = location.href;
+                if (url !== lastUrl) {
+                    lastUrl = url;
+                    startAutoScan();
+                }
+            }).observe(document, { subtree: true, childList: true });
+
+            // Слушаем события навигации через History API
+            const originalPushState = history.pushState;
+            const originalReplaceState = history.replaceState;
+            
+            history.pushState = function(...args) {
+                originalPushState.apply(history, args);
+                startAutoScan();
+            };
+            
+            history.replaceState = function(...args) {
+                originalReplaceState.apply(history, args);
+                startAutoScan();
+            };
+            
+            window.addEventListener('popstate', startAutoScan);
+
+            console.log('[Auto Force Scan] Автоматическое сканирование настроено');
         }
 
         showQuizResults(total, correct, incorrect, results) {
+            // Не показываем панель если нет вопросов
+            if (total === 0 || results.length === 0) {
+                console.log('[showQuizResults] Нет вопросов для отображения, панель не создается');
+                return;
+            }
+            
             const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
             
             // Создаем панель результатов
@@ -236,45 +1153,48 @@
                 position: fixed;
                 top: 20px;
                 right: 20px;
-                width: 350px;
+                width: 400px;
                 background: white;
-                border-radius: 12px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                 z-index: 100001;
-                padding: 20px;
+                padding: 0;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                max-height: 80vh;
-                overflow-y: auto;
+                max-height: 85vh;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
             `;
 
-            const color = percentage >= 80 ? '#4CAF50' : percentage >= 60 ? '#FF9800' : '#f44336';
+            const percentageColor = percentage >= 80 ? '#16a34a' : percentage >= 60 ? '#2563eb' : '#2563eb';
             
             resultsPanel.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3 style="margin: 0; color: #333; font-size: 18px;">📊 Результаты теста</h3>
-                    <button id="close-results-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">×</button>
+                <div style="padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; color: #111827; font-size: 16px; font-weight: 700;">Результаты теста</h3>
+                    <button id="close-results-panel" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; line-height: 1; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: 700;">×</button>
                 </div>
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <div style="font-size: 48px; font-weight: bold; color: ${color}; margin-bottom: 5px;">${percentage}%</div>
-                    <div style="font-size: 14px; color: #666;">Правильных ответов</div>
+                <div style="padding: 20px; text-align: center; border-bottom: 1px solid #e5e7eb;">
+                    <div style="font-size: 36px; font-weight: 700; color: ${percentageColor}; margin-bottom: 4px;">${percentage}%</div>
+                    <div style="font-size: 13px; color: #6b7280; font-weight: 500;">Правильных ответов</div>
                 </div>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <div style="flex: 1; text-align: center; padding: 10px; background: #E8F5E9; border-radius: 8px;">
-                        <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${correct}</div>
-                        <div style="font-size: 12px; color: #666;">Правильно</div>
+                <div style="padding: 16px; border-bottom: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                    <div style="text-align: center; padding: 12px; background: white; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <div style="font-size: 20px; font-weight: 700; color: #16a34a; margin-bottom: 4px;">${correct}</div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;">Правильно</div>
                     </div>
-                    <div style="flex: 1; text-align: center; padding: 10px; background: #FFEBEE; border-radius: 8px;">
-                        <div style="font-size: 24px; font-weight: bold; color: #f44336;">${incorrect}</div>
-                        <div style="font-size: 12px; color: #666;">Неправильно</div>
+                    <div style="text-align: center; padding: 12px; background: white; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <div style="font-size: 20px; font-weight: 700; color: #dc2626; margin-bottom: 4px;">${incorrect}</div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;">Неправильно</div>
                     </div>
-                    <div style="flex: 1; text-align: center; padding: 10px; background: #F5F5F5; border-radius: 8px;">
-                        <div style="font-size: 24px; font-weight: bold; color: #666;">${total}</div>
-                        <div style="font-size: 12px; color: #666;">Всего</div>
+                    <div style="text-align: center; padding: 12px; background: white; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <div style="font-size: 20px; font-weight: 700; color: #111827; margin-bottom: 4px;">${total}</div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;">Всего</div>
                     </div>
                 </div>
-                <div style="border-top: 1px solid #eee; padding-top: 15px;">
-                    <div style="font-weight: bold; margin-bottom: 10px; color: #333;">Детали по вопросам:</div>
-                    <div id="results-details" style="max-height: 300px; overflow-y: auto;"></div>
+                <div style="padding: 16px; flex: 1; overflow-y: auto;">
+                    <div style="font-size: 12px; font-weight: 700; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Детали по вопросам</div>
+                    <div id="results-details" style="display: flex; flex-direction: column; gap: 8px;"></div>
                 </div>
             `;
 
@@ -285,32 +1205,45 @@
             results.forEach((result, index) => {
                 const detailItem = document.createElement('div');
                 detailItem.style.cssText = `
-                    padding: 10px;
-                    margin-bottom: 8px;
+                    padding: 12px;
+                    border: 1px solid #e5e7eb;
                     border-radius: 6px;
-                    border-left: 4px solid ${result.isCorrect ? '#4CAF50' : '#f44336'};
-                    background: ${result.isCorrect ? '#E8F5E9' : '#FFEBEE'};
+                    background: white;
                     font-size: 13px;
+                    cursor: pointer;
+                    transition: all 0.2s;
                 `;
+                
+                detailItem.addEventListener('mouseenter', () => {
+                    detailItem.style.borderColor = result.isCorrect ? '#16a34a' : '#dc2626';
+                    detailItem.style.boxShadow = '0 1px 3px 0 rgba(0, 0, 0, 0.1)';
+                });
+                
+                detailItem.addEventListener('mouseleave', () => {
+                    detailItem.style.borderColor = '#e5e7eb';
+                    detailItem.style.boxShadow = 'none';
+                });
                 
                 const answerText = this.formatAnswer(result.userAnswer);
                 detailItem.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span><strong>Вопрос ${index + 1}:</strong> ${result.isCorrect ? '✅' : '❌'}</span>
-                        <span style="color: ${result.isCorrect ? '#4CAF50' : '#f44336'}; font-weight: bold;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 600; color: #111827;">Вопрос ${index + 1}</span>
+                        <span style="font-size: 11px; font-weight: 700; color: ${result.isCorrect ? '#16a34a' : '#dc2626'}; padding: 2px 8px; background: ${result.isCorrect ? '#f0fdf4' : '#fef2f2'}; border-radius: 4px; border: 1px solid ${result.isCorrect ? '#bbf7d0' : '#fecaca'};">
                             ${result.isCorrect ? 'Правильно' : 'Неправильно'}
                         </span>
                     </div>
-                    <div style="margin-top: 5px; color: #666; font-size: 12px;">
-                        Ваш ответ: ${answerText}
+                    <div style="font-size: 12px; color: #6b7280; font-weight: 500;">
+                        Ваш ответ: <span style="color: #111827; font-weight: 600;">${answerText}</span>
                     </div>
                 `;
                 
                 detailItem.addEventListener('click', () => {
                     result.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    result.element.style.outline = '3px solid #2196F3';
+                    result.element.style.outline = '2px solid #2563eb';
+                    result.element.style.outlineOffset = '2px';
                     setTimeout(() => {
                         result.element.style.outline = '';
+                        result.element.style.outlineOffset = '';
                     }, 2000);
                 });
                 
@@ -318,8 +1251,19 @@
             });
 
             // Закрытие панели
-            document.getElementById('close-results-panel').addEventListener('click', () => {
+            const closeBtn = document.getElementById('close-results-panel');
+            closeBtn.addEventListener('click', () => {
                 resultsPanel.remove();
+            });
+            
+            closeBtn.addEventListener('mouseenter', () => {
+                closeBtn.style.color = '#111827';
+                closeBtn.style.background = '#f3f4f6';
+            });
+            
+            closeBtn.addEventListener('mouseleave', () => {
+                closeBtn.style.color = '#6b7280';
+                closeBtn.style.background = 'transparent';
             });
         }
 
@@ -365,18 +1309,32 @@
                         // Убираем маркеры правильности (✓, ✗ и т.д.)
                         text = text.replace(/[✓✗✔✘]/g, '').trim();
                         
-                        // Убираем значение input.value только если оно в начале и совпадает с буквой варианта
-                        // Например, если value="c" и текст "c. 23.6", оставляем "c. 23.6"
-                        const valuePattern = new RegExp(`^${selected.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.?\\s*`, 'i');
-                        if (text.match(valuePattern)) {
-                            // Убираем только букву варианта в начале, сохраняя остальное
-                            text = text.replace(valuePattern, '').trim();
-                            // Добавляем букву обратно для полного формата
-                            text = `${selected.value}. ${text}`;
+                        // ВАЖНО: Парсим ответ правильно, сохраняя все цифры
+                        // Ищем паттерн: буква варианта, точка (опционально), пробелы, затем весь остальной текст
+                        const answerMatch = text.match(/^([a-e])\.?\s*(.+)$/i);
+                        if (answerMatch) {
+                            const variant = answerMatch[1].toLowerCase();
+                            let answerValue = answerMatch[2].trim();
+                            
+                            // Нормализуем пробелы, но сохраняем все символы (включая цифры)
+                            answerValue = answerValue.replace(/\s+/g, ' ').trim();
+                            
+                            // Формируем полный ответ в формате "d. 32.7"
+                            const fullText = `${variant}. ${answerValue}`;
+                            
+                            console.log('[extractUserAnswerFromReview] Способ 1: извлечен ответ:', fullText, 'из текста:', text);
+                            
+                            return {
+                                value: selected.value,
+                                text: fullText
+                            };
                         }
                         
+                        // Если паттерн не найден, используем весь текст как есть
                         // Нормализуем пробелы
                         text = text.replace(/\s+/g, ' ').trim();
+                        
+                        console.log('[extractUserAnswerFromReview] Способ 1: использован весь текст:', text);
                         
                         return {
                             value: selected.value,
@@ -392,6 +1350,8 @@
                 if (answerMatch) {
                     let answerStr = answerMatch[1].trim();
                     
+                    console.log('[extractUserAnswerFromReview] Способ 2: найден текст ответа:', answerStr);
+                    
                     // Извлекаем букву варианта и полное значение (включая числа)
                     // Паттерн: буква, точка (опционально), пробелы, затем все остальное до конца строки
                     const variantMatch = answerStr.match(/^([a-e])\.?\s*(.+)$/i);
@@ -399,18 +1359,21 @@
                         const variant = variantMatch[1].toLowerCase();
                         let answerValue = variantMatch[2].trim();
                         
-                        // Убираем лишние пробелы, но сохраняем числа
+                        // Убираем лишние пробелы, но сохраняем все символы (включая цифры)
                         answerValue = answerValue.replace(/\s+/g, ' ').trim();
+                        
+                        // Формируем полный ответ в формате "d. 32.7"
+                        const fullText = `${variant}. ${answerValue}`;
+                        
+                        console.log('[extractUserAnswerFromReview] Способ 2: извлечен ответ:', fullText, 'вариант:', variant, 'значение:', answerValue);
                         
                         // Пытаемся найти соответствующий вариант в question.answers
                         for (const answer of question.answers || []) {
                             if (answer.value === variant || answer.value.toLowerCase() === variant) {
-                                // Используем извлеченное значение, если оно содержит число
-                                // Иначе используем текст из answer
-                                const finalText = answerValue || answer.text || answer.value;
+                                // Используем извлеченное значение с полным форматом
                                 return {
                                     value: answer.value,
-                                    text: finalText
+                                    text: fullText
                                 };
                             }
                         }
@@ -418,8 +1381,10 @@
                         // Если не нашли в question.answers, возвращаем то что извлекли
                         return {
                             value: variant,
-                            text: answerValue
+                            text: fullText
                         };
+                    } else {
+                        console.log('[extractUserAnswerFromReview] Способ 2: не удалось распарсить вариант из:', answerStr);
                     }
                 }
                 
@@ -427,17 +1392,24 @@
                 const correctAnswer = element.querySelector('.rightanswer, .correctanswer, .correct .answer');
                 if (correctAnswer) {
                     const correctText = correctAnswer.innerText || correctAnswer.textContent;
+                    console.log('[extractUserAnswerFromReview] Способ 2.5: найден правильный ответ:', correctText);
+                    
                     const correctMatch = correctText.match(/^([a-e])\.?\s*(.+)$/i);
                     if (correctMatch) {
                         const variant = correctMatch[1].toLowerCase();
                         let answerValue = correctMatch[2].trim();
                         answerValue = answerValue.replace(/\s+/g, ' ').trim();
                         
+                        // Формируем полный ответ в формате "d. 32.7"
+                        const fullText = `${variant}. ${answerValue}`;
+                        
+                        console.log('[extractUserAnswerFromReview] Способ 2.5: извлечен ответ:', fullText);
+                        
                         for (const answer of question.answers || []) {
                             if (answer.value === variant || answer.value.toLowerCase() === variant) {
                                 return {
                                     value: answer.value,
-                                    text: answerValue || answer.text || answer.value
+                                    text: fullText
                                 };
                             }
                         }
@@ -450,10 +1422,33 @@
                     // Приоритет: checked input, затем selected/answered классы
                     const input = label.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
                     if (input) {
-                        let text = label.innerText || label.textContent;
-                        text = text.replace(input.value, '').trim();
+                        let text = label.innerText || label.textContent || '';
+                        
+                        // Убираем маркеры правильности
                         text = text.replace(/[✓✗✔✘]/g, '').trim();
+                        
+                        // ВАЖНО: Парсим ответ правильно, сохраняя все цифры
+                        // Ищем паттерн: буква варианта, точка (опционально), пробелы, затем весь остальной текст
+                        const answerMatch = text.match(/^([a-e])\.?\s*(.+)$/i);
+                        if (answerMatch) {
+                            const variant = answerMatch[1].toLowerCase();
+                            let answerValue = answerMatch[2].trim();
+                            answerValue = answerValue.replace(/\s+/g, ' ').trim();
+                            const fullText = `${variant}. ${answerValue}`;
+                            
+                            console.log('[extractUserAnswerFromReview] Способ 3 (checked): извлечен ответ:', fullText);
+                            
+                            return {
+                                value: input.value,
+                                text: fullText
+                            };
+                        }
+                        
+                        // Если паттерн не найден, используем весь текст
                         text = text.replace(/\s+/g, ' ').trim();
+                        
+                        console.log('[extractUserAnswerFromReview] Способ 3 (checked): использован весь текст:', text);
+                        
                         return {
                             value: input.value,
                             text: text
@@ -464,10 +1459,32 @@
                     if (label.classList.contains('selected') || label.classList.contains('answered')) {
                         const input = label.querySelector('input[type="radio"], input[type="checkbox"]');
                         if (input) {
-                            let text = label.innerText || label.textContent;
-                            text = text.replace(input.value, '').trim();
+                            let text = label.innerText || label.textContent || '';
+                            
+                            // Убираем маркеры правильности
                             text = text.replace(/[✓✗✔✘]/g, '').trim();
+                            
+                            // ВАЖНО: Парсим ответ правильно, сохраняя все цифры
+                            const answerMatch = text.match(/^([a-e])\.?\s*(.+)$/i);
+                            if (answerMatch) {
+                                const variant = answerMatch[1].toLowerCase();
+                                let answerValue = answerMatch[2].trim();
+                                answerValue = answerValue.replace(/\s+/g, ' ').trim();
+                                const fullText = `${variant}. ${answerValue}`;
+                                
+                                console.log('[extractUserAnswerFromReview] Способ 3 (selected): извлечен ответ:', fullText);
+                                
+                                return {
+                                    value: input.value,
+                                    text: fullText
+                                };
+                            }
+                            
+                            // Если паттерн не найден, используем весь текст
                             text = text.replace(/\s+/g, ' ').trim();
+                            
+                            console.log('[extractUserAnswerFromReview] Способ 3 (selected): использован весь текст:', text);
+                            
                             return {
                                 value: input.value,
                                 text: text
@@ -494,14 +1511,56 @@
 
         // Хеширование текста вопроса для идентификации
         hashQuestion(questionText) {
+            if (!questionText) return 'empty';
+            
             let hash = 0;
-            const normalized = questionText.toLowerCase().trim().replace(/\s+/g, ' ');
+            // Нормализация текста для стабильного hash:
+            // 1. Приводим к нижнему регистру
+            // 2. Убираем лишние пробелы
+            // 3. Нормализуем пробелы вокруг знаков равенства (a=1 -> a = 1)
+            // 4. Убираем множественные пробелы
+            // 5. ВАЖНО: Сохраняем все числовые значения, включая параметры в экспонентах
+            let normalized = questionText.toLowerCase().trim();
+            
+            // Нормализуем пробелы вокруг знаков равенства, но сохраняем все числовые значения
+            normalized = normalized.replace(/\s*=\s*/g, ' = ');
+            
+            // Нормализуем пробелы вокруг операторов, но сохраняем числовые значения
+            normalized = normalized.replace(/\s*([+\-*/^])\s*/g, ' $1 ');
+            
+            // Убираем множественные пробелы, но сохраняем одиночные пробелы
+            normalized = normalized.replace(/\s+/g, ' ');
+            normalized = normalized.trim();
+            
+            // ВАЖНО: Убеждаемся, что все числовые значения (включая десятичные и отрицательные) сохраняются
+            // Проверяем, что числовые паттерны не потеряны
+            const numberPattern = /[-+]?\d+\.?\d*/g;
+            const numbers = normalized.match(numberPattern);
+            if (numbers) {
+                // Добавляем числовые значения в хеш отдельно для надежности
+                numbers.forEach(num => {
+                    const numStr = num.trim();
+                    for (let i = 0; i < numStr.length; i++) {
+                        hash = ((hash << 5) - hash) + numStr.charCodeAt(i);
+                        hash = hash & hash;
+                    }
+                });
+            }
+            
+            // Хешируем весь нормализованный текст
             for (let i = 0; i < normalized.length; i++) {
                 const char = normalized.charCodeAt(i);
                 hash = ((hash << 5) - hash) + char;
                 hash = hash & hash; // Convert to 32bit integer
             }
-            return Math.abs(hash).toString(36);
+            
+            const finalHash = Math.abs(hash).toString(36);
+            console.log('[hashQuestion] Хеш вычислен:', finalHash, 'для текста длиной', normalized.length, 'символов');
+            if (numbers) {
+                console.log('[hashQuestion] Найдено числовых значений:', numbers.length, numbers);
+            }
+            
+            return finalHash;
         }
 
         async loadSavedAnswers() {
@@ -520,14 +1579,19 @@
 
         async loadStatistics() {
             try {
-                // Сначала загружаем локальную статистику
-                const result = await chrome.storage.sync.get(['questionStats', 'apiSettings']);
-                if (result.questionStats) {
-                    for (const [key, value] of Object.entries(result.questionStats)) {
-                        this.statistics.set(key, value);
+                // Загружаем статистику из local storage (каждая статистика хранится отдельно с префиксом stats_)
+                const allData = await chrome.storage.local.get(null);
+                let loadedCount = 0;
+                
+                for (const [key, value] of Object.entries(allData)) {
+                    if (key.startsWith('stats_')) {
+                        const questionHash = key.replace('stats_', '');
+                        this.statistics.set(questionHash, value);
+                        loadedCount++;
                     }
-                    console.log(`Loaded ${this.statistics.size} questions from local storage`);
                 }
+                
+                console.log(`Loaded ${loadedCount} questions from local storage`);
 
                 // Всегда загружаем статистику с сервера (синхронизация всегда включена)
                 const settings = { enabled: true, apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev', apiKey: '' };
@@ -539,7 +1603,7 @@
 
         async loadStatisticsFromServer(settings) {
             try {
-                const response = await chrome.runtime.sendMessage({
+                const response = await this.safeSendMessage({
                     action: 'syncWithServer',
                     syncAction: 'getAllStatistics'
                 });
@@ -573,7 +1637,7 @@
             }
         }
 
-        async saveAnswer(questionHash, answer, isCorrect = null, questionText = null) {
+        async saveAnswer(questionHash, answer, isCorrect = null, questionText = null, questionImage = null) {
             try {
                 // Проверяем, есть ли уже сохраненный ответ
                 const existingKey = `answer_${questionHash}`;
@@ -587,11 +1651,13 @@
                     // 1. Старый статус был null, а новый известен
                     // 2. Новый статус отличается от старого (исправляем ошибку)
                     // 3. Есть текст вопроса, а раньше не было
+                    // 4. Есть изображение, а раньше не было
                     if (existingData.isCorrect !== null && isCorrect === null) {
                         shouldUpdate = false; // Не перезаписываем известный статус на null
                     } else if (existingData.isCorrect === isCorrect && 
-                               existingData.questionText && !questionText) {
-                        shouldUpdate = false; // Не теряем текст вопроса
+                               existingData.questionText && !questionText &&
+                               existingData.questionImage && !questionImage) {
+                        shouldUpdate = false; // Не теряем текст вопроса и изображение
                     }
                 }
 
@@ -600,8 +1666,11 @@
                         answer: answer,
                         timestamp: existingData?.timestamp || Date.now(), // Сохраняем оригинальную дату
                         isCorrect: isCorrect !== null ? isCorrect : (existingData?.isCorrect || null),
-                        questionText: questionText || existingData?.questionText || null
+                        questionText: questionText || existingData?.questionText || null,
+                        questionImage: questionImage || existingData?.questionImage || null
                     };
+                    
+                    console.log(`[Save] Сохраняем данные: questionImage=${questionImage ? 'есть (' + questionImage.length + ' байт)' : 'нет'}`);
                     
                     await chrome.storage.local.set({
                         [existingKey]: answerData
@@ -643,16 +1712,15 @@
 
                 this.statistics.set(questionHash, stats);
 
-                // Сохраняем в sync storage для синхронизации между устройствами
-                const allStats = {};
-                for (const [key, value] of this.statistics) {
-                    allStats[key] = value;
-                }
-                await chrome.storage.sync.set({ questionStats: allStats });
+                // Используем local storage вместо sync чтобы избежать quota exceeded
+                // Сохраняем каждую статистику отдельно
+                await chrome.storage.local.set({
+                    [`stats_${questionHash}`]: stats
+                });
 
                 // Отправляем на сервер для синхронизации между пользователями (всегда включено)
                 try {
-                    const response = await chrome.runtime.sendMessage({
+                    const response = await this.safeSendMessage({
                         action: 'syncWithServer',
                         questionHash: questionHash,
                         answer: answer,
@@ -697,7 +1765,9 @@
                 
                 if (!text) return null;
 
+                console.log('[parseQuestion] Извлеченный текст вопроса:', text.substring(0, 200) + (text.length > 200 ? '...' : ''));
                 const questionHash = this.hashQuestion(text);
+                console.log('[parseQuestion] Хеш вопроса:', questionHash);
                 const savedAnswer = this.savedAnswers.get(questionHash);
                 const stats = this.statistics.get(questionHash);
 
@@ -734,6 +1804,113 @@
             return null;
         }
 
+        async extractQuestionImage(element) {
+            try {
+                // Ищем изображение в тексте вопроса
+                const qtext = element.querySelector('.qtext, .questiontext');
+                if (!qtext) {
+                    console.log('[extractQuestionImage] .qtext не найден');
+                    return null;
+                }
+
+                const img = qtext.querySelector('img');
+                if (!img || !img.src) {
+                    console.log('[extractQuestionImage] img не найдено в .qtext');
+                    return null;
+                }
+
+                console.log('[extractQuestionImage] Найдено изображение:', img.src.substring(0, 100));
+                
+                // Конвертируем изображение в base64
+                const base64 = await this.imageToBase64(img.src);
+                if (base64) {
+                    console.log('[extractQuestionImage] Изображение успешно конвертировано, размер:', base64.length);
+                }
+                return base64;
+            } catch (e) {
+                console.error('Error extracting question image:', e);
+                return null;
+            }
+        }
+
+        async imageToBase64(url) {
+            try {
+                // Если уже base64, проверяем размер
+                if (url.startsWith('data:')) {
+                    // Если изображение слишком большое, сжимаем его
+                    if (url.length > 50000) { // ~50KB
+                        return await this.compressImage(url);
+                    }
+                    return url;
+                }
+
+                // Загружаем изображение
+                const response = await fetch(url);
+                const blob = await response.blob();
+                
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        const base64 = reader.result;
+                        // Если изображение слишком большое, сжимаем
+                        if (base64.length > 50000) { // ~50KB
+                            resolve(await this.compressImage(base64));
+                        } else {
+                            resolve(base64);
+                        }
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (e) {
+                console.error('Error converting image to base64:', e);
+                return null;
+            }
+        }
+
+        async compressImage(base64) {
+            try {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // Уменьшаем размер если изображение большое
+                        const maxSize = 400; // максимальная ширина/высота
+                        if (width > maxSize || height > maxSize) {
+                            if (width > height) {
+                                height = (height / width) * maxSize;
+                                width = maxSize;
+                            } else {
+                                width = (width / height) * maxSize;
+                                height = maxSize;
+                            }
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Сжимаем в JPEG с качеством 0.7
+                        const compressed = canvas.toDataURL('image/jpeg', 0.7);
+                        resolve(compressed);
+                    };
+                    img.onerror = () => {
+                        console.warn('Failed to compress image, using original');
+                        resolve(base64); // Если не удалось сжать, возвращаем оригинал
+                    };
+                    img.src = base64;
+                });
+            } catch (e) {
+                console.error('Error compressing image:', e);
+                return base64; // Возвращаем оригинал при ошибке
+            }
+        }
+
         detectQuestionType(element) {
             const classes = Array.from(element.classList);
             
@@ -747,19 +1924,103 @@
         }
 
         extractQuestionText(element) {
-            // НОВЫЙ ПОДХОД: Простое извлечение текста без сложной логики с параметрами
-            // Пытаемся найти текст вопроса в разных местах
+            // Сначала извлекаем параметры из исходного DOM (до клонирования)
+            const originalNolinks = Array.from(element.querySelectorAll('.nolink, span.nolink'));
+            const nolinkParams = new Map();
+            
+            console.log('[extractQuestionText] Найдено .nolink элементов:', originalNolinks.length);
+            
+            originalNolinks.forEach((nolinkEl, index) => {
+                let paramText = '';
+                
+                // Пытаемся извлечь из script type="math/tex"
+                const mathTexScript = nolinkEl.querySelector('script[type="math/tex"]');
+                if (mathTexScript) {
+                    paramText = mathTexScript.textContent || mathTexScript.innerText || '';
+                    console.log(`[extractQuestionText] .nolink[${index}] script content:`, paramText);
+                }
+                
+                // Если не нашли в script, пробуем MathJax элементы
+                if (!paramText) {
+                    const mathJaxEl = nolinkEl.querySelector('.MathJax, [class*="MathJax"], mjx-container, mjx-math');
+                    if (mathJaxEl) {
+                        paramText = mathJaxEl.getAttribute('alttext') || 
+                                   mathJaxEl.getAttribute('data-math') ||
+                                   mathJaxEl.getAttribute('aria-label') ||
+                                   '';
+                        console.log(`[extractQuestionText] .nolink[${index}] MathJax attr:`, paramText);
+                    }
+                }
+                
+                // Обрабатываем LaTeX команды
+                if (paramText) {
+                    // Сначала обрабатываем \overline и другие команды (могут быть без скобок)
+                    paramText = paramText.replace(/\\overline\s*/g, '');
+                    paramText = paramText.replace(/\\hat\s*/g, '');
+                    paramText = paramText.replace(/\\vec\s*/g, '');
+                    paramText = paramText.replace(/[¯]+/g, '');
+                    
+                    // Обрабатываем LaTeX команды для греческих букв
+                    paramText = paramText.replace(/\\varepsilon/g, 'ε');
+                    paramText = paramText.replace(/\\epsilon/g, 'ε');
+                    paramText = paramText.replace(/\\alpha/g, 'α');
+                    paramText = paramText.replace(/\\beta/g, 'β');
+                    paramText = paramText.replace(/\\gamma/g, 'γ');
+                    paramText = paramText.replace(/\\delta/g, 'δ');
+                    paramText = paramText.replace(/\\theta/g, 'θ');
+                    paramText = paramText.replace(/\\lambda/g, 'λ');
+                    paramText = paramText.replace(/\\mu/g, 'μ');
+                    paramText = paramText.replace(/\\pi/g, 'π');
+                    paramText = paramText.replace(/\\rho/g, 'ρ');
+                    paramText = paramText.replace(/\\sigma/g, 'σ');
+                    paramText = paramText.replace(/\\tau/g, 'τ');
+                    paramText = paramText.replace(/\\phi/g, 'φ');
+                    paramText = paramText.replace(/\\omega/g, 'ω');
+                    
+                    // Убираем лишние пробелы, которые могли остаться после удаления LaTeX команд
+                    paramText = paramText.replace(/\s+/g, '');
+                    
+                    console.log(`[extractQuestionText] .nolink[${index}] после очистки:`, paramText);
+                    
+                    // ВАЖНО: Сохраняем весь текст из .nolink, даже если он не соответствует простому паттерну
+                    // Это нужно для сложных уравнений типа yC=10(1−e−0.539t)−8t
+                    if (paramText.trim()) {
+                        // Пытаемся найти параметр в формате key=value (простой случай)
+                        // Поддерживаем значения с переменными: -0.1v, 4t^3, и т.д.
+                        const paramMatch = paramText.match(/^([a-zA-Zα-ωΑ-Ωа-яА-Я][a-zA-Zα-ωΑ-Ωа-яА-Я0-9_]*)[=＝]([-+]?(?:\d+\.?\d*|\d*\.?\d+)?[a-zA-Zα-ωΑ-Ωа-яА-Я0-9^_]*)$/);
+                        if (paramMatch && paramMatch[2]) {
+                            // Простой параметр: key=value
+                            const key = paramMatch[1];
+                            const value = paramMatch[2];
+                            const fullParam = key + ' = ' + value;
+                            nolinkParams.set(index, fullParam);
+                            console.log(`[extractQuestionText] .nolink[${index}] сохранен простой параметр:`, fullParam);
+                        } else {
+                            // Сложное выражение или уравнение - сохраняем как есть
+                            // Восстанавливаем пробелы вокруг знака равенства для читаемости
+                            let savedText = paramText.trim();
+                            // Заменяем = на = с пробелами, если их нет
+                            savedText = savedText.replace(/([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\)])=([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\(])/g, '$1 = $2');
+                            nolinkParams.set(index, savedText);
+                            console.log(`[extractQuestionText] .nolink[${index}] сохранен сложный текст:`, savedText);
+                        }
+                    } else {
+                        console.log(`[extractQuestionText] .nolink[${index}] пустой текст после обработки`);
+                    }
+                }
+            });
+            
+            console.log('[extractQuestionText] Всего сохранено параметров:', nolinkParams.size);
+            
+            // Теперь клонируем элемент для обработки
             let qtext = element.querySelector('.qtext');
             
-            // Если не нашли .qtext, ищем в других местах
             if (!qtext) {
                 qtext = element.querySelector('.questiontext, .question-text, [class*="question"]');
             }
             
-            // Если все еще не нашли, берем весь элемент вопроса, но исключаем ответы
             if (!qtext) {
                 qtext = element.cloneNode(true);
-                // Убираем блоки с ответами
                 qtext.querySelectorAll('.answer, .ablock, .formulation, input[type="radio"], input[type="checkbox"]').forEach(el => {
                     const parent = el.closest('.answer, .ablock, .formulation, label');
                     if (parent) parent.remove();
@@ -769,16 +2030,78 @@
             }
             
             if (qtext) {
-                // Убираем скрытые элементы
+                // ВАЖНО: Обрабатываем .nolink элементы ПЕРВЫМ ДЕЛОМ, до удаления скриптов!
+                // Заменяем .nolink на параметры из сохраненной Map
+                const nolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
+                console.log('[extractQuestionText] Обработка .nolink в клоне, найдено:', nolinks.length);
+                
+                nolinks.forEach((nolinkEl, index) => {
+                    let replacementText = '';
+                    
+                    // Используем сохраненный параметр из исходного DOM
+                    if (nolinkParams.has(index)) {
+                        replacementText = nolinkParams.get(index);
+                        console.log(`[extractQuestionText] .nolink[${index}] используем сохраненный параметр:`, replacementText);
+                    } else {
+                        // Если параметр не найден в Map, пытаемся извлечь напрямую из элемента
+                        console.log(`[extractQuestionText] .nolink[${index}] параметр не найден в Map, пытаемся извлечь напрямую`);
+                        
+                        // Пытаемся извлечь из script type="math/tex"
+                        const mathTexScript = nolinkEl.querySelector('script[type="math/tex"]');
+                        if (mathTexScript) {
+                            replacementText = mathTexScript.textContent || mathTexScript.innerText || '';
+                        }
+                        
+                        // Если не нашли в script, пробуем MathJax элементы
+                        if (!replacementText) {
+                            const mathJaxEl = nolinkEl.querySelector('.MathJax, [class*="MathJax"], mjx-container, mjx-math');
+                            if (mathJaxEl) {
+                                replacementText = mathJaxEl.getAttribute('alttext') || 
+                                                 mathJaxEl.getAttribute('data-math') ||
+                                                 mathJaxEl.getAttribute('aria-label') ||
+                                                 '';
+                            }
+                        }
+                        
+                        // Если не нашли, пробуем textContent
+                        if (!replacementText) {
+                            replacementText = nolinkEl.textContent || nolinkEl.innerText || '';
+                        }
+                        
+                        // Обрабатываем LaTeX команды
+                        if (replacementText) {
+                            replacementText = replacementText.replace(/\\overline\s*/g, '');
+                            replacementText = replacementText.replace(/\\hat\s*/g, '');
+                            replacementText = replacementText.replace(/\\vec\s*/g, '');
+                            replacementText = replacementText.replace(/[¯]+/g, '');
+                            // Восстанавливаем пробелы вокруг знака равенства
+                            replacementText = replacementText.replace(/([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\)])=([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\(])/g, '$1 = $2');
+                            replacementText = replacementText.trim();
+                        }
+                        
+                        if (replacementText) {
+                            console.log(`[extractQuestionText] .nolink[${index}] извлечен напрямую:`, replacementText);
+                        }
+                    }
+                    
+                    // Заменяем .nolink на параметр
+                    if (replacementText) {
+                        const textNode = document.createTextNode(' ' + replacementText + ' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                        console.log(`[extractQuestionText] .nolink[${index}] заменен на: "${replacementText}"`);
+                    } else {
+                        const textNode = document.createTextNode(' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                        console.log(`[extractQuestionText] .nolink[${index}] заменен на пробел (текст не найден)`);
+                    }
+                });
+                
+                // Теперь убираем скрытые элементы, скрипты и стили
                 qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
-                
-                // Убираем скрипты и стили
                 qtext.querySelectorAll('script, style').forEach(el => el.remove());
-                
-                // Убираем кнопки и элементы управления расширения
                 qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
                 
-                // Обрабатываем MathJax элементы ПЕРЕД обработкой .nolink
+                // Обрабатываем MathJax элементы (которые не внутри .nolink, те уже заменены)
                 const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"], mjx-container, mjx-math');
                 mathElements.forEach(mathEl => {
                     let mathText = mathEl.getAttribute('alttext') || 
@@ -824,27 +2147,6 @@
                     }
                 });
                 
-                // ПРОСТАЯ ЗАМЕНА .nolink: просто берем их textContent
-                const nolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
-                nolinks.forEach(nolinkEl => {
-                    let nolinkText = nolinkEl.textContent || nolinkEl.innerText || '';
-                    
-                    // Очищаем от LaTeX команд
-                    nolinkText = nolinkText.replace(/[¯]+/g, '');
-                    nolinkText = nolinkText.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
-                    nolinkText = nolinkText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
-                    nolinkText = nolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
-                    
-                    // Если в .nolink есть текст, заменяем на него, иначе просто удаляем
-                    if (nolinkText.trim()) {
-                        const textNode = document.createTextNode(' ' + nolinkText.trim() + ' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                    } else {
-                        const textNode = document.createTextNode(' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                    }
-                });
-                
                 // Убираем блоки с ответами и вариантами
                 qtext.querySelectorAll('.answer, .ablock, .formulation').forEach(el => {
                     if (el.querySelector('input[type="radio"], input[type="checkbox"]')) {
@@ -877,6 +2179,9 @@
                 text = text.replace(/([a-zA-Zа-яА-Я0-9])\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g, '$1 = $2');
                 text = text.replace(/(\d+(?:\.\d+)?)\s{2,}([а-яА-Я]+)/g, '$1 $2');
                 text = text.trim();
+                
+                console.log('[extractQuestionText] Финальный извлеченный текст:', text.substring(0, 300) + (text.length > 300 ? '...' : ''));
+                console.log('[extractQuestionText] Длина финального текста:', text.length, 'символов');
                 
                 return text || 'Текст вопроса не сохранен';
             }
@@ -964,644 +2269,6 @@
             return [];
         }
         
-        // Старый сложный код удален - используем простой подход в extractQuestionText
-                    
-                    // Обрабатываем sup/sub в клоне
-                    fullTextClone.querySelectorAll('sup').forEach(supEl => {
-                        const supText = supEl.textContent || '';
-                        if (supText) {
-                            const textNode = document.createTextNode(supText);
-                            supEl.parentNode.replaceChild(textNode, supEl);
-                        } else {
-                            supEl.remove();
-                        }
-                    });
-                    
-                    fullTextClone.querySelectorAll('sub').forEach(subEl => {
-                        const subText = subEl.textContent || '';
-                        if (subText) {
-                            const textNode = document.createTextNode(subText);
-                            subEl.parentNode.replaceChild(textNode, subEl);
-                        } else {
-                            subEl.remove();
-                        }
-                    });
-                    
-                    const fullText = fullTextClone.textContent || fullTextClone.innerText || '';
-                    
-                    // Извлекаем все параметры из всего текста с их позициями
-                    const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
-                    const allParams = [];
-                    let match;
-                    while ((match = paramPattern.exec(fullText)) !== null) {
-                        const paramStart = match.index;
-                        const paramEnd = paramStart + match[0].length;
-                        const key = match[1];
-                        const value = match[2];
-                        const full = key + ' = ' + value;
-                        
-                        allParams.push({
-                            key,
-                            value,
-                            full,
-                            start: paramStart,
-                            end: paramEnd
-                        });
-                    }
-                    
-                    // Для каждого .nolink элемента находим ближайший параметр ПЕРЕД ним
-                    originalNolinks.forEach((nolinkEl, nolinkIndex) => {
-                        // Находим позицию nolink в клоне
-                        const allNolinksInClone = Array.from(fullTextClone.querySelectorAll('.nolink, span.nolink'));
-                        const nolinkIndexInClone = Array.from(originalNolinks).indexOf(nolinkEl);
-                        let nolinkPosition = -1;
-                        
-                        if (nolinkIndexInClone >= 0 && nolinkIndexInClone < allNolinksInClone.length) {
-                            const nolinkClone = allNolinksInClone[nolinkIndexInClone];
-                            // Создаем временный маркер в клоне
-                            const tempMarker = document.createTextNode('__NOLINK_MARKER__');
-                            nolinkClone.parentNode.insertBefore(tempMarker, nolinkClone);
-                            const markerText = fullTextClone.textContent || '';
-                            nolinkPosition = markerText.indexOf('__NOLINK_MARKER__');
-                            tempMarker.remove();
-                        }
-                        
-                        // Находим параметр, который находится непосредственно ПЕРЕД этим nolink
-                        if (nolinkPosition >= 0 && allParams.length > 0) {
-                            // Фильтруем параметры, которые находятся перед nolink
-                            const paramsBefore = allParams.filter(p => p.end < nolinkPosition);
-                            
-                            if (paramsBefore.length > 0) {
-                                // Берем последний параметр перед nolink (самый близкий)
-                                const closestParam = paramsBefore[paramsBefore.length - 1];
-                                
-                                // Проверяем, что параметр не слишком далеко (в пределах 100 символов)
-                                if (closestParam && (nolinkPosition - closestParam.end) < 100) {
-                                    // Проверяем, не добавили ли мы уже этот параметр для этого nolink
-                                    if (!params.some(p => p.nolinkEl === nolinkEl)) {
-                                        params.push({ 
-                                            key: closestParam.key, 
-                                            value: closestParam.value, 
-                                            full: closestParam.full, 
-                                            nolinkEl,
-                                            index: nolinkIndex
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-                
-                // Также извлекаем все параметры из исходного текста (на случай, если они не рядом с .nolink)
-                // ВАЖНО: Делаем это ДО обработки .nolink, чтобы не потерять параметры
-                const originalText = originalQtext ? (originalQtext.textContent || originalQtext.innerText || '') : '';
-                const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
-                const paramsMap = new Map();
-                let match;
-                while ((match = paramPattern.exec(originalText)) !== null) {
-                    const key = match[1];
-                    const value = match[2];
-                    const full = key + ' = ' + value;
-                    // Сохраняем только уникальные параметры
-                    if (!paramsMap.has(full) && !params.some(p => p.full === full)) {
-                        paramsMap.set(full, { key, value, full });
-                    }
-                }
-                // Добавляем параметры, которые не были найдены рядом с .nolink
-                params.push(...Array.from(paramsMap.values()));
-                
-                // Также проверяем, есть ли параметры в атрибутах .nolink элементов в исходном DOM
-                originalNolinks.forEach((nolinkEl, index) => {
-                    const dataValue = nolinkEl.getAttribute('data-value') || nolinkEl.getAttribute('data-param') || '';
-                    const title = nolinkEl.getAttribute('title') || '';
-                    const nolinkText = nolinkEl.textContent || '';
-                    
-                    // Если в .nolink есть число, пытаемся найти соответствующий параметр
-                    if (dataValue || title || nolinkText.match(/\d/)) {
-                        // Ищем параметр в тексте перед этим .nolink
-                        const parent = nolinkEl.parentElement;
-                        if (parent) {
-                            const range = document.createRange();
-                            range.selectNodeContents(parent);
-                            range.setEndBefore(nolinkEl);
-                            const textBefore = range.toString();
-                            
-                            // Ищем параметр в тексте перед .nolink (в пределах 50 символов)
-                            const recentText = textBefore.slice(-50);
-                            const paramMatch = recentText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
-                            if (paramMatch) {
-                                const key = paramMatch[1];
-                                const value = paramMatch[2];
-                                const full = key + ' = ' + value;
-                                
-                                // Проверяем, не добавили ли мы уже этот параметр для этого nolink
-                                if (!params.some(p => p.nolinkEl === nolinkEl && p.full === full)) {
-                                    // Если параметр еще не связан с этим nolink, добавляем связь
-                                    const existingParam = params.find(p => p.full === full);
-                                    if (existingParam && !existingParam.nolinkEl) {
-                                        existingParam.nolinkEl = nolinkEl;
-                                        existingParam.index = index;
-                                    } else if (!existingParam) {
-                                        params.push({ key, value, full, nolinkEl, index });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-                
-                // Убираем скрытые элементы
-                qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
-                
-                // Убираем скрипты и стили
-                qtext.querySelectorAll('script, style').forEach(el => el.remove());
-                
-                // Убираем кнопки и элементы управления расширения
-                qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
-                
-                // Обрабатываем элементы .nolink - заменяем их на соответствующие параметры
-                const clonedNolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
-                console.log('[extractQuestionText] Найдено .nolink элементов:', clonedNolinks.length);
-                console.log('[extractQuestionText] Найдено параметров:', params.length, params.map(p => p.full));
-                
-                clonedNolinks.forEach((nolinkEl, index) => {
-                    let value = '';
-                    
-                    // Сначала проверяем, есть ли значение в самом .nolink элементе или его атрибутах
-                    const nolinkText = nolinkEl.textContent || nolinkEl.innerText || '';
-                    const nolinkDataValue = nolinkEl.getAttribute('data-value') || nolinkEl.getAttribute('data-param') || '';
-                    const nolinkTitle = nolinkEl.getAttribute('title') || '';
-                    
-                    console.log(`[extractQuestionText] .nolink[${index}]: text="${nolinkText}", data-value="${nolinkDataValue}", title="${nolinkTitle}"`);
-                    
-                    // Если в .nolink есть текст, пытаемся найти полный параметр в нем
-                    // Сначала очищаем текст от LaTeX команд (overline, hat, vec)
-                    let cleanedNolinkText = nolinkText.replace(/[¯]+/g, ''); // Убираем символы overline
-                    cleanedNolinkText = cleanedNolinkText.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
-                    cleanedNolinkText = cleanedNolinkText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
-                    cleanedNolinkText = cleanedNolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
-                    
-                    console.log(`[extractQuestionText] .nolink[${index}] очищенный текст: "${cleanedNolinkText}"`);
-                    
-                    // Пытаемся найти полный параметр в тексте .nolink (например, "m=1" или "a=14" или "R=-0.1v")
-                    // Улучшенный паттерн: поддерживает значения с переменными (например, "-0.1v")
-                    // ВАЖНО: используем более гибкий паттерн, который работает с разными символами равенства и без пробелов
-                    // Сначала пробуем с пробелами, потом без пробелов
-                    let fullParamInNolink = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
-                    
-                    // Если не нашли с пробелами, пробуем без пробелов (на случай если символ = не стандартный или нет пробелов)
-                    if (!fullParamInNolink) {
-                        // Пробуем более простой паттерн без требований к пробелам
-                        // Используем более гибкий паттерн, который работает с разными символами равенства
-                        const simpleMatch = cleanedNolinkText.match(/([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)[=＝]([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/);
-                        if (simpleMatch) {
-                            console.log(`[extractQuestionText] .nolink[${index}] найден параметр упрощенным паттерном:`, simpleMatch);
-                            // Создаем объект, похожий на результат match
-                            fullParamInNolink = simpleMatch;
-                        } else {
-                            // Если все еще не нашли, пробуем еще более гибкий паттерн
-                            // Разбиваем текст на части и ищем паттерн вручную
-                            console.log(`[extractQuestionText] .nolink[${index}] пробуем найти параметр вручную в тексте: "${cleanedNolinkText}"`);
-                            // Пробуем разные варианты разделителя
-                            let parts = cleanedNolinkText.split(/[=＝]/);
-                            if (parts.length !== 2) {
-                                // Если не получилось, пробуем просто по любому символу, похожему на =
-                                parts = cleanedNolinkText.split(/[=＝=]/);
-                            }
-                            console.log(`[extractQuestionText] .nolink[${index}] после split получилось частей: ${parts.length}`, parts);
-                            if (parts.length === 2) {
-                                const key = parts[0].trim();
-                                const val = parts[1].trim();
-                                console.log(`[extractQuestionText] .nolink[${index}] после trim: key="${key}", val="${val}"`);
-                                // Более гибкая проверка: ключ должен начинаться с буквы, значение должно начинаться с цифры, минуса или точки
-                                // и может содержать буквы после цифр (например, "-0.1v", "4t³", "2v")
-                                const keyMatch = key ? key.match(/^[a-zA-Zа-яА-Я]/) : null;
-                                const valMatch = val ? val.match(/^[-]?\d|^[-]?\.\d/) : null;
-                                console.log(`[extractQuestionText] .nolink[${index}] проверки: keyMatch=${keyMatch ? 'OK' : 'FAIL'}, valMatch=${valMatch ? 'OK' : 'FAIL'}`);
-                                if (key && val && keyMatch && valMatch) {
-                                    console.log(`[extractQuestionText] .nolink[${index}] найден параметр вручную: key="${key}", val="${val}"`);
-                                    // Создаем объект, похожий на результат match
-                                    fullParamInNolink = [cleanedNolinkText, key, val];
-                                } else {
-                                    console.log(`[extractQuestionText] .nolink[${index}] параметр не прошел проверку: key="${key}", val="${val}"`);
-                                }
-                            } else {
-                                console.log(`[extractQuestionText] .nolink[${index}] split не дал 2 части, количество: ${parts.length}`);
-                            }
-                        }
-                    }
-                    
-                    console.log(`[extractQuestionText] .nolink[${index}] результат поиска полного параметра:`, fullParamInNolink);
-                    if (fullParamInNolink) {
-                        const key = fullParamInNolink[1];
-                        const val = fullParamInNolink[2];
-                        const full = key + ' = ' + val;
-                        
-                        // Ищем точное совпадение параметра
-                        let matchingParam = params.find(p => p.full === full || (p.key === key && p.value === val));
-                        
-                        // Если не нашли точное совпадение, но значение содержит переменную (например, "-0.1v")
-                        // пытаемся найти параметр с таким же ключом и похожим значением
-                        if (!matchingParam && val.match(/[a-zA-Zа-яА-Я]/)) {
-                            // Ищем параметр с таким же ключом
-                            const paramWithSameKey = params.find(p => p.key === key);
-                            if (paramWithSameKey) {
-                                // Если значение параметра - это число, а в .nolink есть число + переменная,
-                                // создаем полный параметр из найденного параметра и переменной из .nolink
-                                const numberInVal = val.match(/([-]?\d+(?:\.\d+)?)/);
-                                const variableInVal = val.match(/([a-zA-Zа-яА-Я]+)/);
-                                if (numberInVal && variableInVal && paramWithSameKey.value === numberInVal[1]) {
-                                    // Используем найденный параметр, но с переменной из .nolink
-                                    value = key + ' = ' + val;
-                                    console.log(`[extractQuestionText] Создан параметр из найденного и переменной в .nolink: ${value}`);
-                                } else {
-                                    // Используем найденный параметр как есть
-                                    value = paramWithSameKey.full;
-                                    console.log(`[extractQuestionText] Найден параметр по ключу в .nolink: ${value}`);
-                                }
-                            } else {
-                                // Если параметр с таким ключом не найден, используем значение из .nolink напрямую
-                                value = full;
-                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink (параметр с ключом ${key} не найден): ${value}`);
-                            }
-                        } else if (matchingParam) {
-                            value = matchingParam.full;
-                            console.log(`[extractQuestionText] Найден параметр по полному совпадению в .nolink: ${value}`);
-                        } else {
-                            // Если не нашли точное совпадение, ищем по ключу (переменной)
-                            const matchingParamByKey = params.find(p => p.key === key);
-                            if (matchingParamByKey) {
-                                value = matchingParamByKey.full;
-                                console.log(`[extractQuestionText] Найден параметр по ключу в .nolink: ${value}`);
-                            } else {
-                                // Если параметр с таким ключом не найден, используем значение из .nolink напрямую
-                                value = full;
-                                console.log(`[extractQuestionText] Используем параметр напрямую из .nolink (параметр с ключом ${key} не найден в списке): ${value}`);
-                            }
-                        }
-                    } else {
-                        console.log(`[extractQuestionText] .nolink[${index}] полный параметр не найден в тексте "${cleanedNolinkText}"`);
-                    }
-                    
-                    // Если не нашли полный параметр, пытаемся найти по числу (но только точное совпадение значения)
-                    if (!value) {
-                        const numberInNolink = cleanedNolinkText.match(/(\d+(?:\.\d+)?)/);
-                        if (numberInNolink) {
-                            // Ищем параметр с ТОЧНЫМ совпадением значения (не просто вхождение)
-                            const exactValue = numberInNolink[1];
-                            // Сначала ищем точное совпадение значения
-                            let matchingParam = params.find(p => p.value === exactValue);
-                            // Если не нашли, ищем значения с суффиксами (v, t и т.д.)
-                            if (!matchingParam) {
-                                matchingParam = params.find(p => p.value === exactValue + 'v' || p.value === exactValue + 't' || p.value.startsWith(exactValue + '.'));
-                            }
-                            if (matchingParam) {
-                                value = matchingParam.full;
-                                console.log(`[extractQuestionText] Найден параметр по точному числу в .nolink: ${value}`);
-                            }
-                        }
-                    }
-                    
-                    // Если не нашли, проверяем атрибуты
-                    if (!value && nolinkDataValue) {
-                        // Пытаемся найти параметр с таким значением
-                        const matchingParam = params.find(p => p.value === nolinkDataValue || p.full.includes(nolinkDataValue));
-                        if (matchingParam) {
-                            value = matchingParam.full;
-                        } else if (nolinkDataValue.match(/^\d+(?:\.\d+)?$/)) {
-                            // Если это просто число, ищем параметр с таким значением
-                            const matchingParam = params.find(p => p.value === nolinkDataValue);
-                            if (matchingParam) {
-                                value = matchingParam.full;
-                            }
-                        }
-                    }
-                    
-                    // Пытаемся найти соответствующий параметр из исходного DOM
-                    if (!value) {
-                        const originalNolink = originalNolinks[index];
-                        if (originalNolink) {
-                            // Ищем параметр, который был связан с этим nolink
-                            // Сначала ищем по точному совпадению nolinkEl
-                            let param = params.find(p => p.nolinkEl === originalNolink);
-                            
-                            // Если не нашли, ищем по индексу
-                            if (!param) {
-                                param = params.find(p => p.index === index);
-                            }
-                            
-                            if (param) {
-                                value = param.full;
-                                console.log(`[extractQuestionText] Найден параметр по связи с originalNolink: ${value}`);
-                            }
-                        }
-                    }
-                    
-                    // Если не нашли по связи, пытаемся найти по позиции в тексте
-                    if (!value && params.length > 0) {
-                        // Ищем параметр, который находится непосредственно перед этим .nolink элементом
-                        const parent = nolinkEl.parentElement;
-                        if (parent) {
-                            // Получаем весь текст родителя до этого .nolink элемента
-                            const range = document.createRange();
-                            range.selectNodeContents(parent);
-                            range.setEndBefore(nolinkEl);
-                            const textBeforeNolink = range.toString();
-                            
-                            // Ищем все параметры в тексте перед .nolink
-                            const paramPattern = /([a-zA-Zа-яА-Я][a-zA-Zа-яА-Я0-9]*)\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g;
-                            const paramsBefore = [];
-                            let match;
-                            while ((match = paramPattern.exec(textBeforeNolink)) !== null) {
-                                const full = match[1] + ' = ' + match[2];
-                                paramsBefore.push({
-                                    full,
-                                    end: match.index + match[0].length
-                                });
-                            }
-                            
-                            // Берем последний параметр перед .nolink (самый близкий)
-                            if (paramsBefore.length > 0) {
-                                const closestParam = paramsBefore[paramsBefore.length - 1];
-                                // Проверяем, что параметр не слишком далеко (в пределах 200 символов)
-                                const distance = textBeforeNolink.length - closestParam.end;
-                                console.log(`[extractQuestionText] Найдено параметров перед .nolink[${index}]: ${paramsBefore.length}, ближайший: ${closestParam.full}, расстояние: ${distance}`);
-                                if (distance < 200) {
-                                    value = closestParam.full;
-                                    console.log(`[extractQuestionText] Используем параметр из текста перед .nolink: ${value}`);
-                                } else {
-                                    console.log(`[extractQuestionText] Параметр слишком далеко (${distance} символов), пропускаем`);
-                                }
-                            } else {
-                                console.log(`[extractQuestionText] Параметры перед .nolink[${index}] не найдены`);
-                            }
-                        }
-                    }
-                    
-                    // Перед заменой проверяем, не находится ли параметр уже в тексте рядом с .nolink
-                    if (value) {
-                        const parent = nolinkEl.parentElement;
-                        if (parent) {
-                            // Получаем текст вокруг .nolink (50 символов до и после)
-                            const range = document.createRange();
-                            range.selectNodeContents(parent);
-                            const startOffset = Math.max(0, range.toString().indexOf(nolinkEl.textContent || '') - 50);
-                            range.setStart(parent, 0);
-                            range.setEndAfter(nolinkEl);
-                            const textAround = range.toString().slice(startOffset);
-                            
-                            // Проверяем, есть ли уже этот параметр в тексте рядом
-                            const paramKey = value.split('=')[0].trim();
-                            const paramValue = value.split('=')[1]?.trim() || '';
-                            
-                            // Ищем параметр в тексте (в пределах 30 символов от .nolink)
-                            const nearbyText = textAround.slice(-30);
-                            const paramAlreadyExists = nearbyText.includes(paramKey + ' = ' + paramValue) || 
-                                                       nearbyText.includes(paramKey + '=' + paramValue);
-                            
-                            if (paramAlreadyExists) {
-                                // Параметр уже есть в тексте, просто удаляем .nolink
-                                const textNode = document.createTextNode(' ');
-                                nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                            } else {
-                                // Параметра нет, подставляем его
-                                const textNode = document.createTextNode(' ' + value + ' ');
-                                nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                            }
-                        } else {
-                            // Если нет родителя, просто подставляем значение
-                            const textNode = document.createTextNode(' ' + value + ' ');
-                            nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                        }
-                    } else {
-                        // Если значение не найдено, заменяем на пробел
-                        const textNode = document.createTextNode(' ');
-                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
-                    }
-                });
-                
-                // Убираем блоки с ответами и вариантами
-                qtext.querySelectorAll('.answer, .ablock, .formulation').forEach(el => {
-                    // Проверяем, не является ли это частью вопроса
-                    if (el.querySelector('input[type="radio"], input[type="checkbox"]')) {
-                        el.remove();
-                    }
-                });
-                
-                // Получаем текст - используем textContent для сохранения всех данных
-                // ВАЖНО: Сначала обрабатываем специальные элементы (sup, sub, MathJax) перед получением textContent
-                
-                // Обрабатываем элементы <sup> и <sub> - заменяем на читаемый текст
-                qtext.querySelectorAll('sup').forEach(supEl => {
-                    const supText = supEl.textContent || supEl.innerText || '';
-                    if (supText) {
-                        // Заменяем на символ степени или просто добавляем в скобках
-                        const replacement = supText.match(/^\d+$/) ? '^' + supText : supText;
-                        const textNode = document.createTextNode(replacement);
-                        supEl.parentNode.replaceChild(textNode, supEl);
-                    } else {
-                        supEl.remove();
-                    }
-                });
-                
-                qtext.querySelectorAll('sub').forEach(subEl => {
-                    const subText = subEl.textContent || subEl.innerText || '';
-                    if (subText) {
-                        // Заменяем на символ индекса или просто добавляем в скобках
-                        const replacement = subText.match(/^\d+$/) ? '_' + subText : subText;
-                        const textNode = document.createTextNode(replacement);
-                        subEl.parentNode.replaceChild(textNode, subEl);
-                    } else {
-                        subEl.remove();
-                    }
-                });
-                
-                // Ищем MathJax элементы и извлекаем их текст ПЕРЕД получением основного текста
-                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"], mjx-container, mjx-math');
-                mathElements.forEach(mathEl => {
-                    // Пытаемся извлечь текст из различных источников
-                    let mathText = mathEl.getAttribute('alttext') || 
-                                  mathEl.getAttribute('data-math') ||
-                                  mathEl.getAttribute('aria-label') ||
-                                  '';
-                    
-                    // Если не нашли в атрибутах, пытаемся извлечь из содержимого
-                    if (!mathText) {
-                        // Создаем клон и обрабатываем все дочерние элементы, включая sup/sub
-                        const clone = mathEl.cloneNode(true);
-                        clone.querySelectorAll('script, style').forEach(el => el.remove());
-                        
-                        // Обрабатываем sup/sub в клоне перед извлечением текста
-                        clone.querySelectorAll('sup').forEach(supEl => {
-                            const supText = supEl.textContent || '';
-                            if (supText) {
-                                const replacement = supText.match(/^\d+$/) ? supText : supText;
-                                const textNode = document.createTextNode(replacement);
-                                supEl.parentNode.replaceChild(textNode, supEl);
-                            } else {
-                                supEl.remove();
-                            }
-                        });
-                        
-                        clone.querySelectorAll('sub').forEach(subEl => {
-                            const subText = subEl.textContent || '';
-                            if (subText) {
-                                const replacement = subText.match(/^\d+$/) ? subText : subText;
-                                const textNode = document.createTextNode(replacement);
-                                subEl.parentNode.replaceChild(textNode, subEl);
-                            } else {
-                                subEl.remove();
-                            }
-                        });
-                        
-                        mathText = clone.textContent || clone.innerText || '';
-                    }
-                    
-                    // Если нашли текст, заменяем MathJax элемент на текст
-                    if (mathText) {
-                        const textNode = document.createTextNode(' ' + mathText.trim() + ' ');
-                        mathEl.parentNode.replaceChild(textNode, mathEl);
-                    } else {
-                        // Если не нашли, просто удаляем
-                        mathEl.remove();
-                    }
-                });
-                
-                // Получаем основной текст после обработки всех специальных элементов
-                let text = qtext.textContent || qtext.innerText || '';
-                text = text.trim();
-                
-                // Обрабатываем LaTeX команды - заменяем на читаемый текст
-                // ВАЖНО: Сохраняем степени и индексы
-                
-                // Обрабатываем \overline{} - может быть в разных форматах
-                text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1'); // \overline{v} -> v
-                text = text.replace(/([a-zA-Zа-яА-Я])([¯]+)/g, '$1'); // R¯¯¯¯ -> R (убираем символы overline)
-                text = text.replace(/([¯]+)([a-zA-Zа-яА-Я])/g, '$2'); // ¯¯¯¯R -> R
-                
-                text = text.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1'); // \hat{v} -> v
-                text = text.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1'); // \vec{v} -> v
-                
-                // Обрабатываем степени: x^{3} -> x^3, x^3 -> x^3
-                text = text.replace(/\^\{([^}]+)\}/g, '^$1');
-                
-                // Обрабатываем индексы: x_{i} -> x_i, x_i -> x_i
-                text = text.replace(/_\{([^}]+)\}/g, '_$1');
-                
-                // Убираем другие LaTeX команды, но сохраняем содержимое
-                // ВАЖНО: Не удаляем команды, которые могут содержать степени
-                text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1');
-                
-                // Сохраняем степени в читаемом виде - не удаляем символы ^
-                // Например: s = 4t^3 должно остаться s = 4t^3
-                
-                // Убираем дубликаты - применяем несколько раз для надежности
-                // Важно: применяем в правильном порядке, от более специфичных к общим
-                
-                // Случай 1: "s = 4t3s = 4t3" (переменная содержит цифры в значении)
-                text = text.replace(/([a-zA-Zа-яА-Я]+)\s*=\s*(\d+[a-zA-Zа-яА-Я0-9]+)\s*\1\s*=\s*\2/g, '$1 = $2');
-                
-                // Случай 2: "m = 1m = 1", "m = 10m = 10", "a = 14a = 14" (переменная = число переменная = число без пробела)
-                // Более точный паттерн: переменная = число, затем та же переменная = то же число
-                text = text.replace(/([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)([a-zA-Zа-яА-Я]+)\s*=\s*\2/g, '$1 = $2');
-                
-                // Случай 3: "m = 1 m = 1", "m = 10 m = 10" (с пробелом между, с единицами измерения)
-                text = text.replace(/([a-zA-Zа-яА-Я]+)\s*=\s*(\d+(?:\.\d+)?)\s+([а-яА-Я]+)?\s+\1\s*=\s*\2(?:\s+\3)?/g, '$1 = $2 $3');
-                
-                // Случай 4: "m2=5m2=5", "ε=120ε=120" (без пробелов, с цифрами в переменной)
-                text = text.replace(/([a-zA-Zа-яА-Я0-9]+)=(\d+(?:\.\d+)?)\1=\2/g, '$1=$2');
-                
-                // Случай 5: Общий паттерн для любых дубликатов "переменная = значение переменная = значение"
-                // Применяем несколько раз для надежности
-                for (let i = 0; i < 3; i++) {
-                    text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)\s*\1\s*=\s*\2/g, '$1 = $2');
-                    text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)\s*\1\s*=\s*\2/g, '$1 = $2');
-                }
-                
-                // Убираем множественные пробелы (но сохраняем одиночные)
-                text = text.replace(/\s{2,}/g, ' ');
-                
-                // Нормализуем пробелы вокруг знаков равенства (добавляем пробелы для читаемости)
-                // Важно: делаем это после обработки LaTeX, чтобы не сломать формулы
-                text = text.replace(/([a-zA-Zа-яА-Я0-9])\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g, '$1 = $2');
-                text = text.replace(/([a-zA-Zа-яА-Я0-9])=([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g, '$1 = $2'); // Без пробелов -> с пробелами
-                text = text.replace(/(\d+(?:\.\d+)?)\s*=\s*([a-zA-Zа-яА-Я0-9])/g, '$1 = $2');
-                
-                // Убираем лишние пробелы между значениями и единицами измерения
-                // Например: "m = 1  кг" -> "m = 1 кг"
-                text = text.replace(/(\d+(?:\.\d+)?)\s{2,}([а-яА-Я]+)/g, '$1 $2');
-                
-                // Убираем пробелы в начале и конце строк
-                text = text.trim();
-                
-                // Убираем пустые строки
-                text = text.replace(/\n\s*\n/g, '\n');
-                
-                // Удаляем дубликаты всего текста вопроса
-                // Стратегия: ищем повторяющиеся большие блоки текста и удаляем дубликаты
-                
-                // Метод 1: Удаляем повторяющиеся предложения (более 50 символов)
-                const minSentenceLength = 50;
-                const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length >= minSentenceLength);
-                if (sentences.length > 1) {
-                    const seenSentences = new Set();
-                    const uniqueSentences = [];
-                    
-                    for (const sentence of sentences) {
-                        const normalized = sentence.trim().toLowerCase().replace(/\s+/g, ' ').substring(0, 200); // Берем первые 200 символов для сравнения
-                        if (!seenSentences.has(normalized)) {
-                            seenSentences.add(normalized);
-                            uniqueSentences.push(sentence.trim());
-                        }
-                    }
-                    
-                    // Если нашли дубликаты, пересобираем текст
-                    if (uniqueSentences.length < sentences.length) {
-                        text = uniqueSentences.join(' ');
-                    }
-                }
-                
-                // Метод 2: Удаляем повторяющиеся длинные фразы (более 100 символов)
-                // Ищем фразы, которые повторяются подряд
-                let cleanedText = text;
-                const phrasePattern = /(.{100,}?)(?:\s+\1)+/g;
-                cleanedText = cleanedText.replace(phrasePattern, '$1');
-                
-                // Если текст изменился, обновляем
-                if (cleanedText !== text) {
-                    text = cleanedText;
-                }
-                
-                // Удаляем дубликаты параметров в конце текста (если они были добавлены ранее)
-                // Ищем паттерн "параметр, параметр, параметр" в конце
-                const paramListPattern = /((?:[a-zA-Zа-яА-Я0-9]+\s*=\s*\d+(?:\.\d+)?,\s*)+[a-zA-Zа-яА-Я0-9]+\s*=\s*\d+(?:\.\d+)?)\s*$/;
-                const paramListMatch = text.match(paramListPattern);
-                if (paramListMatch) {
-                    // Извлекаем список параметров
-                    const paramList = paramListMatch[1];
-                    // Убираем дубликаты из списка
-                    const paramsArray = paramList.split(',').map(p => p.trim());
-                    const uniqueParams = Array.from(new Set(paramsArray));
-                    // Заменяем список на уникальные параметры
-                    text = text.replace(paramListPattern, uniqueParams.join(', '));
-                }
-                
-                // Убираем избыточное логирование, чтобы не засорять консоль
-                // console.log('[ExtractQuestionText] Извлеченный текст:', text.substring(0, 200));
-                
-                return text;
-            }
-            return null;
-        }
-
-        extractOptions(element, type) {
-            if (type === 'multichoice' || type === 'truefalse') {
-                return this.extractAnswers(element, type);
-            }
-            return [];
-        }
-
         isAnswerCorrect(label, container) {
             // Проверяем классы правильности
             if (label.classList.contains('correct') || 
@@ -1618,16 +2285,13 @@
                 parent = parent.parentElement;
             }
 
-            // Проверяем по стилям (зеленый цвет часто означает правильный ответ)
-            const styles = window.getComputedStyle(label);
-            const color = styles.color;
-            if (color.includes('rgb(40, 167, 69)') || // Bootstrap success
-                color.includes('rgb(76, 175, 80)') || // Material success
-                color.includes('green')) {
-                return true;
+            // Проверяем по классам неправильности
+            if (label.classList.contains('incorrect') || 
+                label.querySelector('.incorrect')) {
+                return false;
             }
 
-            return false;
+            return null; // Неизвестно
         }
 
         addSolveButtons() {
@@ -1654,8 +2318,8 @@
             // Кнопка поиска ответа
             const solveBtn = document.createElement('button');
             solveBtn.className = 'quiz-solver-btn solve';
-            solveBtn.innerHTML = '🔍 Найти ответ';
-            solveBtn.style.cssText = this.getButtonStyle('#4CAF50');
+            solveBtn.innerHTML = 'Найти ответ';
+            solveBtn.style.cssText = this.getButtonStyle('#2563eb', 'info');
 
             const handleSolveClick = () => {
                 this.findAndApplyAnswer(question, solveBtn);
@@ -1665,8 +2329,8 @@
             // Кнопка сохранения ответа
             const saveBtn = document.createElement('button');
             saveBtn.className = 'quiz-solver-btn save';
-            saveBtn.innerHTML = '💾 Сохранить ответ';
-            saveBtn.style.cssText = this.getButtonStyle('#9C27B0');
+            saveBtn.innerHTML = 'Сохранить ответ';
+            saveBtn.style.cssText = this.getButtonStyle('#2563eb', 'info');
 
             const handleSaveClick = () => {
                 this.saveCurrentAnswer(question, saveBtn);
@@ -1676,8 +2340,8 @@
             // Кнопка авто-решения
             const autoBtn = document.createElement('button');
             autoBtn.className = 'quiz-solver-btn auto';
-            autoBtn.innerHTML = '⚡ Авто-решение';
-            autoBtn.style.cssText = this.getButtonStyle('#2196F3');
+            autoBtn.innerHTML = 'Авто-решение';
+            autoBtn.style.cssText = this.getButtonStyle('#2563eb', 'info');
 
             const handleAutoClick = () => {
                 this.autoSolveAll();
@@ -1698,7 +2362,7 @@
             if (question.savedAnswer) {
                 const savedDiv = document.createElement('div');
                 savedDiv.className = 'quiz-solver-saved';
-                savedDiv.innerHTML = `💾 Сохранен ответ: ${this.formatAnswer(question.savedAnswer.answer)}`;
+                savedDiv.innerHTML = `Сохранен ответ: ${this.formatAnswer(question.savedAnswer.answer)}`;
                 savedDiv.style.cssText = `
                     padding: 8px 12px;
                     background: #E1F5FE;
@@ -1796,12 +2460,15 @@
                 }
 
                 button.disabled = true;
-                button.innerHTML = '💾 Сохранение...';
+                button.innerHTML = 'Сохранение...';
 
                 // Определяем правильность ответа, если возможно
                 const isCorrect = this.checkAnswerCorrectness(question, currentAnswer);
+                
+                // Извлекаем изображение из вопроса
+                const questionImage = await this.extractQuestionImage(question.element);
 
-                await this.saveAnswer(question.hash, currentAnswer, isCorrect, question.text);
+                await this.saveAnswer(question.hash, currentAnswer, isCorrect, question.text, questionImage);
                 await this.updateStatistics(question.hash, currentAnswer, isCorrect);
 
                 this.showNotification('✅ Ответ сохранен!', 'success');
@@ -1816,7 +2483,7 @@
                 console.error('Error saving answer:', e);
                 this.showNotification('❌ Ошибка при сохранении', 'error');
                 button.disabled = false;
-                button.innerHTML = '💾 Сохранить ответ';
+                button.innerHTML = 'Сохранить ответ';
             }
         }
 
@@ -1864,18 +2531,26 @@
             return null;
         }
 
-        getButtonStyle(color) {
+        getButtonStyle(color, type = 'info') {
+            const colorMap = {
+                success: '#16a34a',
+                error: '#dc2626',
+                warning: '#f59e0b',
+                info: '#2563eb'
+            };
+            const borderColor = colorMap[type] || color;
+            
             return `
-                padding: 10px 20px;
-                background: ${color};
-                color: white;
-                border: none;
+                padding: 8px 16px;
+                background: white;
+                color: #111827;
+                border: 1px solid ${borderColor};
                 border-radius: 6px;
                 cursor: pointer;
-                font-size: 14px;
-                font-weight: bold;
-                transition: all 0.3s ease;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                font-size: 13px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             `;
         }
 
@@ -1886,7 +2561,7 @@
 
             this.solvingInProgress.add(question.id);
             button.disabled = true;
-            button.innerHTML = '⏳ Ищу ответ...';
+            button.innerHTML = 'Ищу ответ...';
             button.style.opacity = '0.7';
 
             const methods = [];
@@ -1940,38 +2615,34 @@
                 console.log('[Method 3] Правильный ответ на странице не найден');
 
                 // Метод 4: Эвристический анализ
-                console.log('[Method 4] Применяю эвристический анализ...');
+                console.log('[Method 4] Анализирую варианты ответов...');
                 const heuristicAnswer = this.findAnswerByHeuristics(question);
                 
                 if (heuristicAnswer) {
-                    methods.push('Эвристический анализ');
-                    this.applyAnswer(question, heuristicAnswer);
-                    this.showNotification('💡 Ответ определен по анализу (проверьте правильность)', 'info');
-                    button.innerHTML = '💡 Ответ применен';
-                    button.style.background = '#FF9800';
-                    this.solvingInProgress.delete(question.id);
-                    return;
+                    console.log('[Method 4] Эвристика: найден возможный ответ (не применяем автоматически)');
+                    // Не применяем автоматически, так как эвристика ненадежна
+                    // Пользователь должен выбрать ответ вручную или использовать онлайн поиск
                 }
-                console.log('[Method 4] Эвристический анализ не дал результата');
+                console.log('[Method 4] Эвристический анализ завершен (ответ не применен автоматически)');
 
                 // Метод 5: Онлайн поиск
                 console.log('[Method 5] Открываю поиск в Google...');
                 methods.push('Онлайн поиск');
                 this.searchAnswerOnline(question);
-                this.showNotification('🔍 Открываю поиск ответа в Google. Проверьте результаты и заполните вручную.', 'info');
-                button.innerHTML = '🔍 Искать онлайн';
-                button.style.background = '#9C27B0';
+                this.showNotification('Открываю поиск ответа в Google. Проверьте результаты и заполните вручную.', 'info');
+                button.innerHTML = 'Искать онлайн';
+                button.style.background = '';
 
             } catch (e) {
                 console.error('Error finding answer:', e);
-                this.showNotification('❌ Ошибка при поиске ответа', 'error');
+                this.showNotification('Ошибка при поиске ответа', 'error');
             } finally {
                 this.solvingInProgress.delete(question.id);
                 setTimeout(function resetButtonState() {
                     button.disabled = false;
-                    button.innerHTML = '🔍 Найти ответ';
+                    button.innerHTML = 'Найти ответ';
                     button.style.opacity = '1';
-                    button.style.background = '#4CAF50';
+                    button.style.background = '';
                 }, 2000);
             }
         }
@@ -2031,7 +2702,7 @@
         async loadQuestionStatisticsFromServer(question) {
             try {
                 // Всегда загружаем статистику с сервера (синхронизация всегда включена)
-                const response = await chrome.runtime.sendMessage({
+                const response = await this.safeSendMessage({
                     action: 'syncWithServer',
                     questionHash: question.hash,
                     syncAction: 'getStatistics'
@@ -2364,16 +3035,54 @@
         }
 
         applyAnswer(question, answer) {
+            console.log('[applyAnswer] Применяю ответ:', answer);
+            
             if (question.type === 'multichoice' || question.type === 'truefalse') {
-                if (answer.input) {
-                    answer.input.checked = true;
-                    answer.input.dispatchEvent(new Event('change', { bubbles: true }));
-                    answer.input.dispatchEvent(new Event('click', { bubbles: true }));
+                let input = answer.input;
+                
+                // Если input не найден, пытаемся найти его по value
+                if (!input && answer.value) {
+                    console.log('[applyAnswer] input не найден, ищу по value:', answer.value);
+                    const questionElement = question.element;
+                    input = questionElement.querySelector(`input[type="radio"][value="${answer.value}"], input[type="checkbox"][value="${answer.value}"]`);
                     
-                    // Также кликаем на label для совместимости
-                    if (answer.label) {
-                        answer.label.click();
+                    if (input) {
+                        console.log('[applyAnswer] Найден input по value');
+                    } else {
+                        // Пытаемся найти по тексту ответа
+                        const allInputs = questionElement.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                        for (const inp of allInputs) {
+                            const label = questionElement.querySelector(`label[for="${inp.id}"]`) || 
+                                        inp.closest('label') || 
+                                        inp.parentElement;
+                            if (label && (label.innerText.includes(answer.text) || answer.text.includes(label.innerText.trim()))) {
+                                input = inp;
+                                console.log('[applyAnswer] Найден input по тексту');
+                                break;
+                            }
+                        }
                     }
+                }
+                
+                if (input) {
+                    console.log('[applyAnswer] Применяю к input:', input.value);
+                    // Сначала кликаем на label, если есть
+                    const label = input.closest('label') || 
+                                 question.element.querySelector(`label[for="${input.id}"]`);
+                    if (label) {
+                        console.log('[applyAnswer] Кликаю на label');
+                        label.click();
+                    }
+                    
+                    // Затем устанавливаем checked и отправляем события
+                    input.checked = true;
+                    input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                    input.dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+                    
+                    console.log('[applyAnswer] Ответ применен успешно');
+                } else {
+                    console.error('[applyAnswer] Не удалось найти input для ответа:', answer);
                 }
             } else if (question.type === 'shortanswer' || question.type === 'numerical') {
                 // Для текстовых полей нужен поиск ответа отдельно
@@ -2407,38 +3116,52 @@
             const existing = document.querySelectorAll('.quiz-solver-notification');
             existing.forEach(el => el.remove());
 
+            // Убираем эмодзи из сообщения
+            const cleanMessage = message.replace(/[📊✅❌💡🔍🚀]/g, '').trim();
+
             const notification = document.createElement('div');
             notification.className = 'quiz-solver-notification';
-            notification.textContent = message;
             
             const colors = {
-                success: '#4CAF50',
-                error: '#f44336',
-                warning: '#ff9800',
-                info: '#2196F3'
+                success: { border: '#16a34a', text: '#16a34a', bg: '#f0fdf4' },
+                error: { border: '#dc2626', text: '#dc2626', bg: '#fef2f2' },
+                warning: { border: '#f59e0b', text: '#f59e0b', bg: '#fffbeb' },
+                info: { border: '#2563eb', text: '#2563eb', bg: '#eff6ff' }
             };
+            
+            const colorScheme = colors[type] || colors.info;
             
             notification.style.cssText = `
                 position: fixed;
                 top: 20px;
                 right: 20px;
-                padding: 15px 25px;
-                background: ${colors[type] || colors.info};
-                color: white;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                padding: 12px 16px;
+                background: white;
+                border: 1px solid ${colorScheme.border};
+                border-left-width: 4px;
+                color: #111827;
+                border-radius: 6px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                 z-index: 100000;
-                font-size: 15px;
-                font-weight: 500;
+                font-size: 14px;
+                font-weight: 600;
                 max-width: 400px;
                 animation: slideIn 0.3s ease;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            `;
+            
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 4px; height: 4px; border-radius: 50%; background: ${colorScheme.border}; flex-shrink: 0;"></div>
+                    <span style="color: #111827; font-weight: 600;">${cleanMessage}</span>
+                </div>
             `;
 
             document.body.appendChild(notification);
 
             setTimeout(() => {
                 notification.style.animation = 'slideOut 0.3s ease';
+                notification.style.opacity = '0';
                 setTimeout(() => notification.remove(), 300);
             }, 4000);
         }
@@ -2496,8 +3219,11 @@
                 // Определяем правильность, если возможно
                 const isCorrect = this.checkAnswerCorrectness(question, answer);
                 
+                // Извлекаем изображение из вопроса
+                const questionImage = await this.extractQuestionImage(question.element);
+                
                 // Сохраняем ответ
-                await this.saveAnswer(question.hash, answer, isCorrect, question.text);
+                await this.saveAnswer(question.hash, answer, isCorrect, question.text, questionImage);
                 
                 // Показываем индикатор сохранения
                 this.showAutoSaveIndicator(question.element);
@@ -2518,7 +3244,7 @@
             // Создаем новый индикатор
             const indicator = document.createElement('div');
             indicator.className = 'auto-save-indicator';
-            indicator.innerHTML = '💾 Автосохранено';
+            indicator.innerHTML = 'Автосохранено';
             indicator.style.cssText = `
                 position: absolute;
                 top: 5px;

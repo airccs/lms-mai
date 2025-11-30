@@ -980,15 +980,31 @@
                             // Если все еще не нашли, пробуем еще более гибкий паттерн
                             // Разбиваем текст на части и ищем паттерн вручную
                             console.log(`[extractQuestionText] .nolink[${index}] пробуем найти параметр вручную в тексте: "${cleanedNolinkText}"`);
-                            const parts = cleanedNolinkText.split(/[=＝]/);
+                            // Пробуем разные варианты разделителя
+                            let parts = cleanedNolinkText.split(/[=＝]/);
+                            if (parts.length !== 2) {
+                                // Если не получилось, пробуем просто по любому символу, похожему на =
+                                parts = cleanedNolinkText.split(/[=＝=]/);
+                            }
+                            console.log(`[extractQuestionText] .nolink[${index}] после split получилось частей: ${parts.length}`, parts);
                             if (parts.length === 2) {
                                 const key = parts[0].trim();
                                 const val = parts[1].trim();
-                                if (key && val && key.match(/^[a-zA-Zа-яА-Я]/) && val.match(/^[-]?\d/)) {
+                                console.log(`[extractQuestionText] .nolink[${index}] после trim: key="${key}", val="${val}"`);
+                                // Более гибкая проверка: ключ должен начинаться с буквы, значение должно начинаться с цифры, минуса или точки
+                                // и может содержать буквы после цифр (например, "-0.1v", "4t³", "2v")
+                                const keyMatch = key ? key.match(/^[a-zA-Zа-яА-Я]/) : null;
+                                const valMatch = val ? val.match(/^[-]?\d|^[-]?\.\d/) : null;
+                                console.log(`[extractQuestionText] .nolink[${index}] проверки: keyMatch=${keyMatch ? 'OK' : 'FAIL'}, valMatch=${valMatch ? 'OK' : 'FAIL'}`);
+                                if (key && val && keyMatch && valMatch) {
                                     console.log(`[extractQuestionText] .nolink[${index}] найден параметр вручную: key="${key}", val="${val}"`);
                                     // Создаем объект, похожий на результат match
                                     fullParamInNolink = [cleanedNolinkText, key, val];
+                                } else {
+                                    console.log(`[extractQuestionText] .nolink[${index}] параметр не прошел проверку: key="${key}", val="${val}"`);
                                 }
+                            } else {
+                                console.log(`[extractQuestionText] .nolink[${index}] split не дал 2 части, количество: ${parts.length}`);
                             }
                         }
                     }

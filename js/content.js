@@ -415,6 +415,7 @@
             });
             
             this.isForceScanning = true;
+            console.log('[Force Auto Scan] Флаги установлены, начинаю сканирование...');
             this.showNotification('Начинаю принудительное автосканирование...', 'info');
 
             try {
@@ -481,7 +482,11 @@
 
                 // Ищем прямые ссылки на результаты на текущей странице
                 const directReviewLinks = this.findDirectReviewLinksOnPage();
-                console.log(`[Force Auto Scan] Найдено ${directReviewLinks.length} прямых ссылок на результаты`);
+                console.log(`[Force Auto Scan] Найдено ${directReviewLinks.length} прямых ссылок на результаты на текущей странице`);
+                
+                if (directReviewLinks.length === 0 && totalScanned === 0) {
+                    console.log('[Force Auto Scan] На текущей странице нет ссылок для сканирования');
+                }
                 
                 for (const link of directReviewLinks) {
                     try {
@@ -498,7 +503,11 @@
 
                 // Ищем ссылки на тесты и находим в них результаты
                 const quizLinks = this.findQuizLinksOnPage();
-                console.log(`[Force Auto Scan] Найдено ${quizLinks.length} ссылок на тесты`);
+                console.log(`[Force Auto Scan] Найдено ${quizLinks.length} ссылок на тесты на текущей странице`);
+                
+                if (quizLinks.length === 0 && directReviewLinks.length === 0 && totalScanned === 0) {
+                    console.log('[Force Auto Scan] ⚠️ На странице нет ссылок для сканирования. Сканирование завершено без результатов.');
+                }
                 
                 for (const quizUrl of quizLinks) {
                     const reviewLinks = await this.findReviewLinksFromQuiz(quizUrl);
@@ -1081,9 +1090,10 @@
             if (scanState.autoScanInProgress) {
                 const startTime = scanState.autoScanStartTime || Date.now();
                 const elapsed = Date.now() - startTime;
-                // Если сканирование идет больше 10 минут, считаем его зависшим и сбрасываем
-                if (elapsed > 600000) {
-                    console.log('[Auto Force Scan] Обнаружено зависшее сканирование, сбрасываю...');
+                // Если сканирование идет больше 2 минут, считаем его зависшим и сбрасываем
+                const MAX_SCAN_DURATION = 120000; // 2 минуты
+                if (elapsed > MAX_SCAN_DURATION) {
+                    console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (${Math.floor(elapsed / 1000)} сек), сбрасываю...`);
                     await chrome.storage.local.set({ autoScanInProgress: false, autoScanStartTime: null });
                 } else {
                     console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад), пропускаю...`);

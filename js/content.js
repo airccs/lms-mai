@@ -861,6 +861,31 @@
             return links;
         }
 
+        findReviewLinkFromAttempt(attemptUrl) {
+            // Пытаемся найти ссылку на review страницу из attempt.php
+            // Обычно это ссылка вида: /mod/quiz/review.php?attempt=XXXXX
+            try {
+                // Ищем ссылку на review в DOM
+                const reviewLink = document.querySelector('a[href*="review.php"], a[href*="/review"]');
+                if (reviewLink && reviewLink.href) {
+                    const urlWithLang = reviewLink.href.includes('lang=') ? reviewLink.href : 
+                                      (reviewLink.href.includes('?') ? `${reviewLink.href}&lang=ru` : `${reviewLink.href}?lang=ru`);
+                    return urlWithLang;
+                }
+                
+                // Если не найдено, пытаемся сконструировать URL из attempt URL
+                const attemptMatch = attemptUrl.match(/attempt=(\d+)/);
+                if (attemptMatch) {
+                    const attemptId = attemptMatch[1];
+                    const baseUrl = attemptUrl.split('/mod/quiz/')[0];
+                    return `${baseUrl}/mod/quiz/review.php?attempt=${attemptId}&lang=ru`;
+                }
+            } catch (error) {
+                console.error('[Force Auto Scan] Ошибка при поиске review ссылки:', error);
+            }
+            return null;
+        }
+
         findQuizLinksOnPage() {
             // Находит ссылки на тесты на текущей странице
             const links = [];

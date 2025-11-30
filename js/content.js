@@ -471,11 +471,21 @@
                             const courseUrl = uniqueCourseLinks[i];
                             console.log(`[Force Auto Scan] [${i + 1}/${uniqueCourseLinks.length}] Обрабатываю курс: ${courseUrl}`);
                             
+                            // Обновляем heartbeat
+                            if (this.isForceScanning) {
+                                await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                            }
+                            
                             const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
                             console.log(`[Force Auto Scan] В курсе найдено ${reviewLinks.length} ссылок на результаты`);
                             
                             // Сканируем все найденные результаты
                             for (const reviewLink of reviewLinks) {
+                                // Обновляем heartbeat перед каждым сканированием
+                                if (this.isForceScanning) {
+                                    await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                                }
+                                
                                 try {
                                     const result = await this.scanReviewPageWithFetch(reviewLink);
                                     totalScanned++;

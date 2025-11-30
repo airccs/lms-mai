@@ -510,6 +510,11 @@
                 }
                 
                 for (const link of directReviewLinks) {
+                    // Обновляем heartbeat перед каждым сканированием
+                    if (this.isForceScanning) {
+                        await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                    }
+                    
                     try {
                         const result = await this.scanReviewPageWithFetch(link);
                         totalScanned++;

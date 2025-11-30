@@ -249,6 +249,27 @@ async function handleServerSync(request, sendResponse) {
                     timestamp: Date.now()
                 })
             });
+        } else if (syncAction === 'saveAnswer') {
+            // Отправляем сохраненный ответ на сервер
+            const { questionText, questionImage } = request;
+            response = await fetch(`${apiUrl}/api/save`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    questionHash,
+                    answer,
+                    isCorrect,
+                    questionText: questionText || null,
+                    questionImage: questionImage || null,
+                    timestamp: Date.now()
+                })
+            });
+        } else if (syncAction === 'getSavedAnswers') {
+            // Получаем сохраненные ответы других пользователей
+            response = await fetch(`${apiUrl}/api/answers/${questionHash}`, {
+                method: 'GET',
+                headers: headers
+            });
         } else if (syncAction === 'getStatistics') {
             // Получаем статистику с сервера
             response = await fetch(`${apiUrl}/api/stats/${questionHash}`, {

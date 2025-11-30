@@ -1726,6 +1726,28 @@
                     });
                     this.savedAnswers.set(questionHash, answerData);
                     console.log(`[Save] ${existingData ? 'Обновлен' : 'Сохранен'} ответ для вопроса (hash: ${questionHash}, isCorrect: ${isCorrect})`);
+                    
+                    // Синхронизируем ответ с сервером для других пользователей
+                    try {
+                        const syncResponse = await this.safeSendMessage({
+                            action: 'syncWithServer',
+                            syncAction: 'saveAnswer',
+                            questionHash: questionHash,
+                            answer: answer,
+                            isCorrect: answerData.isCorrect,
+                            questionText: answerData.questionText,
+                            questionImage: answerData.questionImage
+                        });
+                        
+                        if (syncResponse && syncResponse.success) {
+                            console.log('[Save] Ответ синхронизирован с сервером');
+                        } else {
+                            console.warn('[Save] Не удалось синхронизировать ответ с сервером');
+                        }
+                    } catch (syncError) {
+                        console.warn('[Save] Ошибка синхронизации ответа с сервером:', syncError);
+                    }
+                    
                     return true; // Возвращаем true если было обновление
                 }
                 
@@ -2693,12 +2715,14 @@
 
             const methods = [];
             try {
-                // Метод 1: Сохраненные ответы
+                // Метод 1: Сохраненные ответы (локальные и с сервера)
                 console.log('[Method 1] Проверяю сохраненные ответы...');
+                
+                // Сначала проверяем локальные ответы
                 if (question.savedAnswer) {
                     const saved = question.savedAnswer.answer;
                     if (this.applySavedAnswer(question, saved)) {
-                        methods.push('Сохраненные ответы');
+                        methods.push('Сохраненные ответы (локально)');
                         this.showNotification('✅ Применен сохраненный ответ!', 'success');
                         button.innerHTML = '✅ Ответ применен';
                         button.style.background = '#4CAF50';
@@ -2706,6 +2730,48 @@
                         return;
                     }
                 }
+                
+                // Загружаем ответы других пользователей с сервера
+                try {
+                    const serverResponse = await this.safeSendMessage({
+                        action: 'syncWithServer',
+                        syncAction: 'getSavedAnswers',
+                        questionHash: question.hash
+                    });
+                    
+                    if (serverResponse && serverResponse.success && serverResponse.data && serverResponse.data.answers) {
+                        const serverAnswers = serverResponse.data.answers;
+                        console.log(`[Method 1] Найдено ${serverAnswers.length} ответов с сервера`);
+                        
+                        // Ищем правильный ответ (isCorrect === true)
+                        const correctAnswer = serverAnswers.find(a => a.isCorrect === true);
+                        if (correctAnswer && correctAnswer.answer) {
+                            if (this.applySavedAnswer(question, correctAnswer.answer)) {
+                                methods.push('Сохраненные ответы (с сервера)');
+                                this.showNotification('✅ Применен ответ другого пользователя!', 'success');
+                                button.innerHTML = '✅ Ответ применен';
+                                button.style.background = '#4CAF50';
+                                this.solvingInProgress.delete(question.id);
+                                return;
+                            }
+                        }
+                        
+                        // Если правильного ответа нет, используем первый доступный
+                        if (serverAnswers.length > 0 && serverAnswers[0].answer) {
+                            if (this.applySavedAnswer(question, serverAnswers[0].answer)) {
+                                methods.push('Сохраненные ответы (с сервера)');
+                                this.showNotification('✅ Применен ответ другого пользователя!', 'success');
+                                button.innerHTML = '✅ Ответ применен';
+                                button.style.background = '#4CAF50';
+                                this.solvingInProgress.delete(question.id);
+                                return;
+                            }
+                        }
+                    }
+                } catch (serverError) {
+                    console.warn('[Method 1] Ошибка загрузки ответов с сервера:', serverError);
+                }
+                
                 console.log('[Method 1] Сохраненные ответы не найдены');
 
                 // Метод 2: Статистика других пользователей

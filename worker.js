@@ -96,7 +96,7 @@ export default {
       // Save answer
       if (path === '/api/save' && request.method === 'POST') {
         const data = await request.json();
-        const { questionHash, answer, isCorrect } = data;
+        const { questionHash, answer, isCorrect, questionText, questionImage, timestamp } = data;
 
         if (!questionHash) {
           return new Response(JSON.stringify({ error: 'Question hash required' }), {
@@ -105,14 +105,46 @@ export default {
           });
         }
 
-        // Save answer (simplified - in real implementation might want to store multiple answers)
-        await env.QUIZ_DATA.put(`answer_${questionHash}`, JSON.stringify({
-          answer,
-          isCorrect,
-          timestamp: Date.now(),
-        }));
+        // Получаем существующие ответы для этого вопроса
+        const existingAnswersKey = `answers_${questionHash}`;
+        const existingAnswersData = await env.QUIZ_DATA.get(existingAnswersKey);
+        let answers = existingAnswersData ? JSON.parse(existingAnswersData) : [];
 
-        return new Response(JSON.stringify({ success: true }), {
+        // Проверяем, нет ли уже такого ответа
+        const answerExists = answers.some(a => JSON.stringify(a.answer) === JSON.stringify(answer));
+        
+        if (!answerExists) {
+          // Добавляем новый ответ
+          answers.push({
+            answer,
+            isCorrect,
+            questionText: questionText || null,
+            questionImage: questionImage || null,
+            timestamp: timestamp || Date.now(),
+          });
+        } else {
+          // Обновляем существующий ответ, если новый более полный
+          const existingIndex = answers.findIndex(a => JSON.stringify(a.answer) === JSON.stringify(answer));
+          if (existingIndex !== -1) {
+            const existing = answers[existingIndex];
+            answers[existingIndex] = {
+              answer,
+              isCorrect: isCorrect !== null ? isCorrect : existing.isCorrect,
+              questionText: questionText || existing.questionText || null,
+              questionImage: questionImage || existing.questionImage || null,
+              timestamp: existing.timestamp || timestamp || Date.now(),
+            };
+          }
+        }
+
+        // Сохраняем обновленный список ответов
+        await env.QUIZ_DATA.put(existingAnswersKey, JSON.stringify(answers));
+
+        // Также сохраняем последний ответ для обратной совместимости
+        const lastAnswer = answers[answers.length - 1];
+        await env.QUIZ_DATA.put(`answer_${questionHash}`, JSON.stringify(lastAnswer));
+
+        return new Response(JSON.stringify({ success: true, answers: answers }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -127,14 +159,32 @@ export default {
           });
         }
 
-        const answer = await env.QUIZ_DATA.get(`answer_${questionHash}`);
-        if (!answer) {
-          return new Response(JSON.stringify({ answers: [] }), {
+        // Пытаемся получить список ответов
+        const answersKey = `answers_${questionHash}`;
+        const answersData = await env.QUIZ_DATA.get(answersKey);
+        
+        if (answersData) {
+          const answers = JSON.parse(answersData);
+          // Сортируем: сначала правильные ответы, затем по дате
+          answers.sort((a, b) => {
+            if (a.isCorrect === true && b.isCorrect !== true) return -1;
+            if (a.isCorrect !== true && b.isCorrect === true) return 1;
+            return (b.timestamp || 0) - (a.timestamp || 0);
+          });
+          return new Response(JSON.stringify({ answers: answers }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
 
-        return new Response(JSON.stringify({ answers: [JSON.parse(answer)] }), {
+        // Обратная совместимость: проверяем старый формат
+        const oldAnswer = await env.QUIZ_DATA.get(`answer_${questionHash}`);
+        if (oldAnswer) {
+          return new Response(JSON.stringify({ answers: [JSON.parse(oldAnswer)] }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        return new Response(JSON.stringify({ answers: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

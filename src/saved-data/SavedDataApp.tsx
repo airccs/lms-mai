@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, RefreshCw, Download, Trash2, Scan, Image as ImageIcon } from 'lucide-react';
+import { ALLOW_DELETE_DATA } from '../config';
 
 interface SavedAnswer {
   hash: string;
@@ -211,13 +212,15 @@ export default function SavedDataApp() {
               <Download className="w-4 h-4" />
               Экспорт
             </button>
-            <button
-              onClick={clearAllData}
-              className="px-4 py-2 text-sm bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors flex items-center gap-2 font-medium"
-            >
-              <Trash2 className="w-4 h-4" />
-              Очистить
-            </button>
+            {ALLOW_DELETE_DATA && (
+              <button
+                onClick={clearAllData}
+                className="px-4 py-2 text-sm bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors flex items-center gap-2 font-medium"
+              >
+                <Trash2 className="w-4 h-4" />
+                Очистить
+              </button>
+            )}
           </div>
         </div>
 
@@ -274,12 +277,14 @@ export default function SavedDataApp() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => deleteItem(item.hash)}
-                        className="ml-4 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-md transition-colors font-medium"
-                      >
-                        Удалить
-                      </button>
+                      {ALLOW_DELETE_DATA && (
+                        <button
+                          onClick={() => deleteItem(item.hash)}
+                          className="ml-4 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-md transition-colors font-medium"
+                        >
+                          Удалить
+                        </button>
+                      )}
                     </div>
                   </div>
 

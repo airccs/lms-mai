@@ -2,7 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  define: {
+    // В production режиме отключаем удаление данных
+    'import.meta.env.PROD': JSON.stringify(mode === 'production'),
+    'import.meta.env.DEV': JSON.stringify(mode === 'development'),
+  },
   plugins: [
     react(),
     {
@@ -88,4 +93,4 @@ export default defineConfig({
     },
     emptyOutDir: false,
   },
-});
+}));

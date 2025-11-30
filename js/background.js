@@ -195,8 +195,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // Удалить сохраненный ответ
-    if (request.action === 'deleteSavedAnswer') {
+    // Удалить сохраненный ответ (только в dev режиме)
+    // В production режиме эти функции отключены для защиты данных
+    const IS_DEV_MODE = false; // Установите в true только для разработки
+    
+    if (IS_DEV_MODE && request.action === 'deleteSavedAnswer') {
         const { hash } = request;
         chrome.storage.local.remove(`answer_${hash}`, () => {
             sendResponse({ success: true });
@@ -204,14 +207,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // Очистить все сохраненные ответы
-    if (request.action === 'clearAllSavedAnswers') {
+    if (IS_DEV_MODE && request.action === 'clearAllSavedAnswers') {
         chrome.storage.local.get(null, (allData) => {
             const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
             chrome.storage.local.remove(keysToRemove, () => {
                 sendResponse({ success: true });
             });
         });
+        return true;
+    }
+    
+    // В production режиме возвращаем ошибку при попытке удаления
+    if (!IS_DEV_MODE && (request.action === 'deleteSavedAnswer' || request.action === 'clearAllSavedAnswers')) {
+        sendResponse({ success: false, error: 'Удаление данных отключено в production версии' });
         return true;
     }
 });

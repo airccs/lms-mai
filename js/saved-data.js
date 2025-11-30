@@ -1,3 +1,6 @@
+// В production режиме удаление данных отключено
+const IS_DEV_MODE = false; // Установите в true только для разработки
+
 let allData = [];
 
 function loadData() {
@@ -92,7 +95,7 @@ function displayData(data) {
                     <strong>Ответ:</strong><br>
                     ${escapeHtml(answerText)}
                 </div>
-                <button class="delete-btn" data-action="delete" data-hash="${escapeHtml(item.hash)}">Удалить</button>
+                ${IS_DEV_MODE ? `<button class="delete-btn" data-action="delete" data-hash="${escapeHtml(item.hash)}">Удалить</button>` : ''}
             </div>
         `;
     }).join('');
@@ -258,11 +261,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Кнопка очистки всех данных
+    // Кнопка очистки данных (только в dev режиме)
     const clearAllBtn = document.getElementById('clear-all-btn');
     if (clearAllBtn) {
-        clearAllBtn.addEventListener('click', () => {
-            clearAllData();
-        });
+        if (IS_DEV_MODE) {
+            clearAllBtn.addEventListener('click', () => {
+                clearAllData();
+            });
+        } else {
+            // Скрываем кнопку в production
+            clearAllBtn.style.display = 'none';
+        }
     }
 
     // Кнопка автосканирования

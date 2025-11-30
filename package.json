@@ -4,8 +4,10 @@
   "description": "LMS MAI Quiz Solver Chrome Extension",
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build && npm run fix-html",
+    "dev": "vite build --mode development --watch",
+    "build": "vite build --mode production && npm run fix-html",
+    "build:dev": "vite build --mode development && npm run fix-html",
+    "build:prod": "vite build --mode production && npm run fix-html",
     "fix-html": "node -e \"const fs = require('fs'); const path = require('path'); if (fs.existsSync('html/src/popup/index.html')) { fs.mkdirSync('html', { recursive: true }); fs.renameSync('html/src/popup/index.html', 'html/popup.html'); } if (fs.existsSync('html/src/auto-scan/index.html')) { fs.renameSync('html/src/auto-scan/index.html', 'html/auto-scan-react.html'); } if (fs.existsSync('html/src')) { fs.rmSync('html/src', { recursive: true, force: true }); }\"",
     "preview": "vite preview"
   },

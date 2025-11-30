@@ -180,7 +180,7 @@
         async updateAllSavedAnswersFromReview(questionElements) {
             // Обновляем все сохраненные ответы на основе текущей страницы результатов
             try {
-                const allSaved = await chrome.storage.local.get(null);
+                const allSaved = await this.safeStorageGet(null) || {};
                 let updatedCount = 0;
 
                 for (const element of questionElements) {
@@ -397,7 +397,7 @@
             // Использует ту же логику, что и auto-scan.js, но через fetch
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+            const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
             if (scanState.autoScanInProgress) {
                 console.log('[Force Auto Scan] Сканирование уже выполняется в фоне');
                 return;
@@ -410,7 +410,7 @@
 
             // Устанавливаем флаг сканирования в storage для координации между страницами
             // Также сохраняем heartbeat для проверки активности
-            await chrome.storage.local.set({ 
+            await this.safeStorageSet({ 
                 autoScanInProgress: true, 
                 autoScanStartTime: Date.now(),
                 autoScanHeartbeat: Date.now() // Время последнего обновления
@@ -423,7 +423,7 @@
             // Устанавливаем интервал для обновления heartbeat каждые 10 секунд
             const heartbeatInterval = setInterval(async () => {
                 if (this.isForceScanning) {
-                    await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                 } else {
                     clearInterval(heartbeatInterval);
                 }
@@ -473,7 +473,7 @@
                             
                             // Обновляем heartbeat
                             if (this.isForceScanning) {
-                                await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                                await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                             }
                             
                             const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
@@ -483,7 +483,7 @@
                             for (const reviewLink of reviewLinks) {
                                 // Обновляем heartbeat перед каждым сканированием
                                 if (this.isForceScanning) {
-                                    await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                                 }
                                 
                                 try {
@@ -512,7 +512,7 @@
                 for (const link of directReviewLinks) {
                     // Обновляем heartbeat перед каждым сканированием
                     if (this.isForceScanning) {
-                        await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                        await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                     }
                     
                     try {
@@ -745,7 +745,7 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
 
-            const beforeData = await chrome.storage.local.get(null);
+            const beforeData = await this.safeStorageGet(null) || {};
             const beforeCount = Object.keys(beforeData).filter(key => key.startsWith('answer_')).length;
 
             const questionElements = doc.querySelectorAll('.que');
@@ -800,7 +800,7 @@
                 }
             }
 
-            const afterData = await chrome.storage.local.get(null);
+            const afterData = await this.safeStorageGet(null) || {};
             const afterCount = Object.keys(afterData).filter(key => key.startsWith('answer_')).length;
             const actuallySaved = afterCount - beforeCount;
 
@@ -1163,10 +1163,10 @@
             
             // На страницах attempt.php автосканирование не нужно, сбрасываем флаг если он установлен
             if (url.includes('attempt.php')) {
-                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                 if (scanState.autoScanInProgress) {
                     console.log('[Auto Force Scan] Страница attempt.php - сбрасываю флаг сканирования (автосканирование не нужно на этой странице)');
-                    await chrome.storage.local.set({ 
+                    await this.safeStorageSet({ 
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
                         autoScanHeartbeat: null 
@@ -1177,7 +1177,7 @@
             }
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await chrome.storage.local.get(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat']);
+            const scanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat']) || {};
             if (scanState.autoScanInProgress) {
                 const startTime = scanState.autoScanStartTime || Date.now();
                 const lastHeartbeat = scanState.autoScanHeartbeat || startTime;
@@ -1191,7 +1191,7 @@
                 
                 if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
                     console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), сбрасываю...`);
-                    await chrome.storage.local.set({ 
+                    await this.safeStorageSet({ 
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
                         autoScanHeartbeat: null 
@@ -1205,7 +1205,7 @@
             console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
 
             // Защита от слишком частых запусков
-            const scanHistory = await chrome.storage.local.get(['lastScanTime']);
+            const scanHistory = await this.safeStorageGet(['lastScanTime']) || {};
             let lastScanTime = scanHistory.lastScanTime || 0;
             const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
 
@@ -1215,7 +1215,7 @@
                 console.log(`[Auto Force Scan] Запрос на запуск сканирования (причина: ${reason})`);
                 
                 // Проверяем состояние сканирования в storage
-                const currentState = await chrome.storage.local.get(['autoScanInProgress', 'lastScanTime']);
+                const currentState = await this.safeStorageGet(['autoScanInProgress', 'lastScanTime']) || {};
                 if (currentState.autoScanInProgress) {
                     console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, пропускаю...');
                     return;
@@ -1251,7 +1251,7 @@
                 // Запускаем сканирование через 3 секунды после последнего взаимодействия
                 scanTimeout = setTimeout(async () => {
                     // Еще раз проверяем состояние перед запуском
-                    const finalCheck = await chrome.storage.local.get(['autoScanInProgress']);
+                    const finalCheck = await this.safeStorageGet(['autoScanInProgress']) || {};
                     if (finalCheck.autoScanInProgress) {
                         console.log('[Auto Force Scan] Сканирование уже запущено в фоне, отменяю...');
                         return;
@@ -1259,7 +1259,7 @@
                     
                     if (!this.isForceScanning && !this.isProcessingReview) {
                         lastScanTime = Date.now();
-                        await chrome.storage.local.set({ lastScanTime: lastScanTime });
+                        await this.safeStorageSet({ lastScanTime: lastScanTime });
                         console.log('%c[Auto Force Scan] 🚀 Автоматический запуск сканирования...', 'color: #2563eb; font-weight: bold; font-size: 14px;');
                         this.showNotification('Автоматическое сканирование запущено...', 'info');
                         try {
@@ -1327,8 +1327,8 @@
                         const hasQuizLinks = document.querySelector('a[href*="quiz"], a[href*="review"], a[href*="attempt"]');
                         if (hasQuizLinks) {
                             // Проверяем состояние сканирования асинхронно
-                            chrome.storage.local.get(['autoScanInProgress']).then(scanState => {
-                                if (!scanState.autoScanInProgress) {
+                            this.safeStorageGet(['autoScanInProgress']).then(scanState => {
+                                if (!scanState || !scanState.autoScanInProgress) {
                                     startAutoScan('изменение DOM');
                                 } else {
                                     console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при изменении DOM');
@@ -1369,7 +1369,7 @@
                     lastUrl = url;
                     
                     // Проверяем, не идет ли уже сканирование перед запуском нового
-                    const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                    const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                     if (scanState.autoScanInProgress) {
                         console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при навигации');
                         return;
@@ -1385,7 +1385,7 @@
             
             history.pushState = async function(...args) {
                 originalPushState.apply(history, args);
-                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                 if (!scanState.autoScanInProgress) {
                     startAutoScan('pushState');
                 } else {
@@ -1395,7 +1395,7 @@
             
             history.replaceState = async function(...args) {
                 originalReplaceState.apply(history, args);
-                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                 if (!scanState.autoScanInProgress) {
                     startAutoScan('replaceState');
                 } else {
@@ -1404,7 +1404,7 @@
             };
             
             window.addEventListener('popstate', async () => {
-                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                 if (!scanState.autoScanInProgress) {
                     startAutoScan('popstate');
                 } else {

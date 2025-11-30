@@ -1843,7 +1843,11 @@
 
         async loadSavedAnswers() {
             try {
-                const result = await chrome.storage.local.get(null);
+                const result = await this.safeStorageGet(null);
+                if (!result) {
+                    return;
+                }
+                
                 for (const [key, value] of Object.entries(result)) {
                     if (key.startsWith('answer_')) {
                         this.savedAnswers.set(key.replace('answer_', ''), value);
@@ -1858,7 +1862,11 @@
         async loadStatistics() {
             try {
                 // Загружаем статистику из local storage (каждая статистика хранится отдельно с префиксом stats_)
-                const allData = await chrome.storage.local.get(null);
+                const allData = await this.safeStorageGet(null);
+                if (!allData) {
+                    return;
+                }
+                
                 let loadedCount = 0;
                 
                 for (const [key, value] of Object.entries(allData)) {
@@ -1917,9 +1925,18 @@
 
         async saveAnswer(questionHash, answer, isCorrect = null, questionText = null, questionImage = null) {
             try {
+                // Проверяем доступность chrome.storage
+                if (!chrome || !chrome.storage || !chrome.storage.local) {
+                    console.warn('[Save] chrome.storage недоступен, пропускаю сохранение');
+                    return false;
+                }
+                
                 // Проверяем, есть ли уже сохраненный ответ
                 const existingKey = `answer_${questionHash}`;
-                const existing = await chrome.storage.local.get([existingKey]);
+                const existing = await this.safeStorageGet([existingKey]);
+                if (!existing) {
+                    return false;
+                }
                 const existingData = existing[existingKey];
                 
                 // Если ответ уже есть, обновляем только если новый статус более точный
@@ -1950,9 +1967,13 @@
                     
                     console.log(`[Save] Сохраняем данные: questionImage=${questionImage ? 'есть (' + questionImage.length + ' байт)' : 'нет'}`);
                     
-                    await chrome.storage.local.set({
+                    const saved = await this.safeStorageSet({
                         [existingKey]: answerData
                     });
+                    if (!saved) {
+                        return false;
+                    }
+                    
                     this.savedAnswers.set(questionHash, answerData);
                     console.log(`[Save] ${existingData ? 'Обновлен' : 'Сохранен'} ответ для вопроса (hash: ${questionHash}, isCorrect: ${isCorrect})`);
                     

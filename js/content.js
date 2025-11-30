@@ -1161,6 +1161,21 @@
                 return;
             }
             
+            // На страницах attempt.php автосканирование не нужно, сбрасываем флаг если он установлен
+            if (url.includes('attempt.php')) {
+                const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                if (scanState.autoScanInProgress) {
+                    console.log('[Auto Force Scan] Страница attempt.php - сбрасываю флаг сканирования (автосканирование не нужно на этой странице)');
+                    await chrome.storage.local.set({ 
+                        autoScanInProgress: false, 
+                        autoScanStartTime: null,
+                        autoScanHeartbeat: null 
+                    });
+                }
+                console.log('[Auto Force Scan] Страница attempt.php - автосканирование отключено (это страница прохождения теста)');
+                return;
+            }
+            
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
             const scanState = await chrome.storage.local.get(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat']);
             if (scanState.autoScanInProgress) {
@@ -1169,8 +1184,8 @@
                 const elapsed = Date.now() - startTime;
                 const heartbeatElapsed = Date.now() - lastHeartbeat;
                 
-                // Если heartbeat не обновлялся более 30 секунд, считаем сканирование зависшим
-                const MAX_HEARTBEAT_INTERVAL = 30000; // 30 секунд
+                // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
+                const MAX_HEARTBEAT_INTERVAL = 20000; // 20 секунд (уменьшено с 30)
                 // Если сканирование идет больше 2 минут, считаем его зависшим
                 const MAX_SCAN_DURATION = 120000; // 2 минуты
                 
@@ -1261,19 +1276,16 @@
 
             // Запускаем при загрузке страницы (только если не страница attempt.php)
             // На страницах attempt.php автосканирование не нужно, так как это страница прохождения теста
-            if (!url.includes('attempt.php')) {
-                if (document.readyState === 'loading') {
-                    console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
-                    document.addEventListener('DOMContentLoaded', () => {
-                        console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
-                        startAutoScan('загрузка страницы');
-                    });
-                } else {
-                    console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
+            // Проверка уже выполнена выше, здесь просто запускаем
+            if (document.readyState === 'loading') {
+                console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
+                document.addEventListener('DOMContentLoaded', () => {
+                    console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
                     startAutoScan('загрузка страницы');
-                }
+                });
             } else {
-                console.log('[Auto Force Scan] Страница attempt.php - автосканирование отключено (это страница прохождения теста)');
+                console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
+                startAutoScan('загрузка страницы');
             }
 
             // Слушаем изменения DOM для автоматического запуска при навигации

@@ -542,7 +542,7 @@
                     for (const reviewLink of reviewLinks) {
                         // Обновляем heartbeat перед каждым сканированием
                         if (this.isForceScanning) {
-                            await chrome.storage.local.set({ autoScanHeartbeat: Date.now() });
+                            await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                         }
                         
                         try {
@@ -585,9 +585,10 @@
             } finally {
                 // Сбрасываем флаги сканирования
                 this.isForceScanning = false;
-                await chrome.storage.local.set({ 
+                await this.safeStorageSet({ 
                     autoScanInProgress: false, 
-                    autoScanStartTime: null 
+                    autoScanStartTime: null,
+                    autoScanHeartbeat: null 
                 });
                 console.log('[Force Auto Scan] Флаги сканирования сброшены');
             }
@@ -1352,7 +1353,7 @@
                 const link = e.target.closest('a');
                 if (link && (link.href.includes('quiz') || link.href.includes('review') || link.href.includes('attempt'))) {
                     // Проверяем, не идет ли уже сканирование
-                    const scanState = await chrome.storage.local.get(['autoScanInProgress']);
+                    const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
                     if (scanState.autoScanInProgress) {
                         console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, не запускаю новое при клике');
                         return;
@@ -2035,7 +2036,7 @@
 
                 // Используем local storage вместо sync чтобы избежать quota exceeded
                 // Сохраняем каждую статистику отдельно
-                await chrome.storage.local.set({
+                await this.safeStorageSet({
                     [`stats_${questionHash}`]: stats
                 });
 

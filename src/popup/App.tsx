@@ -11,7 +11,9 @@ import {
   BrainCircuit,
   CheckCircle2,
   Save,
-  Database as DatabaseIcon
+  Database as DatabaseIcon,
+  Scan,
+  RefreshCw
 } from 'lucide-react';
 import { Section } from '../components/Section';
 import { InfoBlock } from '../components/InfoBlock';
@@ -109,44 +111,40 @@ const App: React.FC = () => {
         }
       }
 
-      // Загружаем статистику из sync storage
-      let syncData: any = {};
-      try {
-        const result = await chrome.storage.sync.get(['questionStats']);
-        syncData = result || {};
-      } catch (err) {
-        console.warn('[loadStatistics] Error reading sync storage:', err);
-        syncData = {};
-      }
-
-      const questionStats = (syncData && syncData.questionStats) ? syncData.questionStats : {};
+      // Загружаем статистику из local storage (stats_${hash})
       let questionCount = 0;
-      if (typeof questionStats === 'object' && questionStats !== null) {
-        try {
-          questionCount = Object.keys(questionStats).length;
-        } catch (err) {
-          console.warn('[loadStatistics] Error counting questions:', err);
-        }
-      }
-
-      // Подсчитываем общее количество попыток
       let totalAttempts = 0;
-      if (typeof questionStats === 'object' && questionStats !== null) {
+      
+      if (localData && typeof localData === 'object' && localData !== null) {
         try {
-          const values = Object.values(questionStats);
-          for (let i = 0; i < values.length; i++) {
-            const stats = values[i];
-            if (typeof stats === 'object' && stats !== null && stats !== undefined) {
-              if ('totalAttempts' in stats) {
-                const attempts = (stats as any).totalAttempts;
-                if (typeof attempts === 'number' && !isNaN(attempts) && isFinite(attempts) && attempts >= 0) {
-                  totalAttempts += attempts;
+          const keys = Object.keys(localData);
+          const questionHashes = new Set<string>();
+          
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            if (key && typeof key === 'string') {
+              // Статистика хранится как stats_${hash}
+              if (key.startsWith('stats_')) {
+                const hash = key.replace('stats_', '');
+                questionHashes.add(hash);
+                
+                // Загружаем статистику для этого вопроса
+                const stats = localData[key];
+                if (typeof stats === 'object' && stats !== null && stats !== undefined) {
+                  if ('totalAttempts' in stats) {
+                    const attempts = (stats as any).totalAttempts;
+                    if (typeof attempts === 'number' && !isNaN(attempts) && isFinite(attempts) && attempts >= 0) {
+                      totalAttempts += attempts;
+                    }
+                  }
                 }
               }
             }
           }
+          
+          questionCount = questionHashes.size;
         } catch (err) {
-          console.warn('[loadStatistics] Error calculating total attempts:', err);
+          console.warn('[loadStatistics] Error counting questions:', err);
         }
       }
 
@@ -261,6 +259,13 @@ const App: React.FC = () => {
               description="Используйте для всех вопросов сразу"
               icon={Zap}
             />
+            <InfoBlock 
+              number={5} 
+              title="Автоматическое сканирование" 
+              description="Расширение автоматически сканирует все пройденные тесты при взаимодействии с сайтом"
+              icon={Scan}
+              highlight
+            />
           </div>
         </Section>
 
@@ -282,6 +287,14 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2.5 text-sm text-slate-700 bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm transition-transform hover:scale-[1.01]">
               <Globe className="w-4 h-4 text-blue-500" />
               <span>Поиск ответов в Google для сложных вопросов</span>
+            </div>
+            <div className="flex items-center gap-2.5 text-sm text-slate-700 bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm transition-transform hover:scale-[1.01]">
+              <Scan className="w-4 h-4 text-green-500" />
+              <span>Автоматическое сканирование всех пройденных тестов</span>
+            </div>
+            <div className="flex items-center gap-2.5 text-sm text-slate-700 bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm transition-transform hover:scale-[1.01]">
+              <RefreshCw className="w-4 h-4 text-indigo-500" />
+              <span>Автоматическое сохранение ответов при прохождении тестов</span>
             </div>
           </div>
         </Section>
@@ -308,14 +321,8 @@ const App: React.FC = () => {
             />
             <InfoBlock 
               number={4} 
-              title="Эвристический анализ" 
-              description="Анализирует варианты ответов и выбирает наиболее вероятный"
-              icon={BrainCircuit}
-            />
-             <InfoBlock 
-              number={5} 
               title="Онлайн поиск" 
-              description="Открывает Google для поиска ответа"
+              description="Открывает Google для поиска ответа, если ответ не найден в базе"
               icon={Globe}
             />
           </div>
@@ -358,18 +365,29 @@ const App: React.FC = () => {
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-md"
             >
               <DatabaseIcon className="w-4 h-4" />
-              Просмотр данных (React версия)
+              Просмотр данных
             </button>
+          </div>
+        </Section>
+
+        {/* Auto Scan */}
+        <Section title="Автосканирование" icon={Scan}>
+          <div className="space-y-2">
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-2">
+              <p className="text-sm text-blue-800">
+                Расширение автоматически сканирует все пройденные тесты при открытии главной страницы LMS или любой другой страницы сайта. Сканирование происходит в фоновом режиме без открытия новых вкладок.
+              </p>
+            </div>
             <button
               onClick={() => {
                 chrome.tabs.create({
-                  url: chrome.runtime.getURL('html/saved-data.html')
+                  url: chrome.runtime.getURL('html/auto-scan-react.html')
                 });
               }}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-md"
             >
-              <DatabaseIcon className="w-4 h-4" />
-              Просмотр данных (HTML версия)
+              <Scan className="w-4 h-4" />
+              Ручное автосканирование
             </button>
           </div>
         </Section>
@@ -379,9 +397,17 @@ const App: React.FC = () => {
       <footer className="bg-amber-50 border-t border-amber-100 p-4">
         <div className="flex gap-3">
           <Lightbulb className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-900 leading-relaxed">
-            <span className="font-bold">Совет:</span> Сохраняйте правильные ответы с помощью кнопки <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 rounded text-amber-800 font-semibold border border-amber-200"><Save className="w-3 h-3"/> Сохранить ответ</span> — это поможет другим пользователям и вам в будущем. Включите синхронизацию с сервером для обмена статистикой между всеми пользователями.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-amber-900 leading-relaxed">
+              <span className="font-bold">Совет:</span> Сохраняйте правильные ответы с помощью кнопки <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 rounded text-amber-800 font-semibold border border-amber-200"><Save className="w-3 h-3"/> Сохранить ответ</span> — это поможет другим пользователям и вам в будущем.
+            </p>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              <span className="font-bold">Автосканирование:</span> Расширение автоматически сканирует все пройденные тесты при открытии страниц LMS. Ответы сохраняются автоматически при прохождении тестов.
+            </p>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              Включите синхронизацию с сервером для обмена статистикой между всеми пользователями.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

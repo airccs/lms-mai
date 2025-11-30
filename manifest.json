@@ -1,7 +1,7 @@
 {
    "manifest_version": 3,
    "name": "LMS MAI Quiz Solver",
-   "version": "1.9.4",
+   "version": "1.9.9",
    "description": "Помогает решать тесты в Moodle LMS",
    "author": "Ваше имя",
    "default_locale": "ru",
@@ -52,12 +52,9 @@
             "css/*", 
             "html/js/*", 
             "html/css/*", 
-            "html/saved-data.html", 
             "html/saved-data-react.html",
-            "html/auto-scan.html",
             "html/auto-scan-react.html", 
             "js/saved-data.js", 
-            "js/saved-data-react.js",
             "js/auto-scan.js"
          ],
          "matches": ["*://*/*"]

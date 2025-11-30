@@ -420,13 +420,30 @@
                     console.log('[Force Auto Scan] Главная страница, ищу курсы...');
                     const courseLinks = await this.findCoursesOnPage();
                     
-                    if (courseLinks.length > 0) {
-                        console.log(`[Force Auto Scan] Найдено ${courseLinks.length} курсов`);
-                        this.showNotification(`Найдено ${courseLinks.length} курсов. Сканирую...`, 'info');
+                    // Дедупликация курсов по ID
+                    const uniqueCourses = new Map();
+                    courseLinks.forEach(url => {
+                        const match = url.match(/[?&]id=(\d+)/);
+                        if (match) {
+                            const courseId = match[1];
+                            if (!uniqueCourses.has(courseId)) {
+                                uniqueCourses.set(courseId, url);
+                            }
+                        } else {
+                            // Если нет ID, добавляем как есть
+                            uniqueCourses.set(url, url);
+                        }
+                    });
+                    
+                    const uniqueCourseLinks = Array.from(uniqueCourses.values());
+                    
+                    if (uniqueCourseLinks.length > 0) {
+                        console.log(`[Force Auto Scan] Найдено ${courseLinks.length} ссылок, уникальных курсов: ${uniqueCourseLinks.length}`);
+                        this.showNotification(`Найдено ${uniqueCourseLinks.length} курсов. Сканирую...`, 'info');
                         
-                        for (let i = 0; i < courseLinks.length; i++) {
-                            const courseUrl = courseLinks[i];
-                            console.log(`[Force Auto Scan] [${i + 1}/${courseLinks.length}] Обрабатываю курс: ${courseUrl}`);
+                        for (let i = 0; i < uniqueCourseLinks.length; i++) {
+                            const courseUrl = uniqueCourseLinks[i];
+                            console.log(`[Force Auto Scan] [${i + 1}/${uniqueCourseLinks.length}] Обрабатываю курс: ${courseUrl}`);
                             
                             const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
                             console.log(`[Force Auto Scan] В курсе найдено ${reviewLinks.length} ссылок на результаты`);
@@ -735,10 +752,21 @@
                 
                 const response = await fetch(urlWithLang, {
                     credentials: 'include',
-                    headers: { 'Accept': 'text/html' }
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'ru-RU,ru;q=0.9',
+                        'Referer': window.location.href,
+                        'User-Agent': navigator.userAgent
+                    },
+                    mode: 'cors',
+                    redirect: 'follow'
                 });
 
                 if (!response.ok) {
+                    if (response.status === 403) {
+                        console.warn(`[findReviewLinksFromCourse] Доступ запрещен (403) для ${urlWithLang}, пропускаю...`);
+                        return [];
+                    }
                     throw new Error(`HTTP ${response.status}`);
                 }
 
@@ -805,10 +833,21 @@
                 
                 const response = await fetch(urlWithLang, {
                     credentials: 'include',
-                    headers: { 'Accept': 'text/html' }
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'ru-RU,ru;q=0.9',
+                        'Referer': window.location.href,
+                        'User-Agent': navigator.userAgent
+                    },
+                    mode: 'cors',
+                    redirect: 'follow'
                 });
 
                 if (!response.ok) {
+                    if (response.status === 403) {
+                        console.warn(`[findReviewLinksFromQuiz] Доступ запрещен (403) для ${urlWithLang}, пропускаю...`);
+                        return [];
+                    }
                     throw new Error(`HTTP ${response.status}`);
                 }
 
@@ -911,11 +950,21 @@
                 const response = await fetch(url, {
                     credentials: 'include', // Включаем cookies для авторизации
                     headers: {
-                        'Accept': 'text/html'
-                    }
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'ru-RU,ru;q=0.9',
+                        'Referer': window.location.href,
+                        'User-Agent': navigator.userAgent
+                    },
+                    mode: 'cors',
+                    redirect: 'follow'
                 });
 
                 if (!response.ok) {
+                    // Если 403 - это нормально, возможно нет доступа к этой странице
+                    if (response.status === 403) {
+                        console.warn(`[scanReviewPageWithFetch] Доступ запрещен (403) для ${url}, пропускаю...`);
+                        return { questions: 0, saved: 0 };
+                    }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
@@ -1845,7 +1894,23 @@
                 }
 
                 // Загружаем изображение
-                const response = await fetch(url);
+                const response = await fetch(url, {
+                    credentials: 'include',
+                    headers: {
+                        'Referer': window.location.href,
+                        'User-Agent': navigator.userAgent
+                    },
+                    mode: 'cors'
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        console.warn(`[imageToBase64] Доступ запрещен (403) для изображения ${url}, пропускаю...`);
+                        return null;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const blob = await response.blob();
                 
                 return new Promise((resolve, reject) => {
@@ -1977,6 +2042,19 @@
                     paramText = paramText.replace(/\\phi/g, 'φ');
                     paramText = paramText.replace(/\\omega/g, 'ω');
                     
+                    // Обрабатываем градусы
+                    paramText = paramText.replace(/\\circ/g, '°');
+                    paramText = paramText.replace(/\^\\circ/g, '°');
+                    paramText = paramText.replace(/\^\{\\circ\}/g, '°');
+                    
+                    // Обрабатываем умножение
+                    paramText = paramText.replace(/\\cdot\s*/g, '·');
+                    paramText = paramText.replace(/\\cdotj/g, '·j');
+                    paramText = paramText.replace(/\\cdot\s*j/g, '·j');
+                    
+                    // Убираем фигурные скобки LaTeX (но сохраняем содержимое)
+                    paramText = paramText.replace(/\{([^}]+)\}/g, '$1');
+                    
                     // Убираем лишние пробелы, которые могли остаться после удаления LaTeX команд
                     paramText = paramText.replace(/\s+/g, '');
                     
@@ -2074,6 +2152,20 @@
                             replacementText = replacementText.replace(/\\hat\s*/g, '');
                             replacementText = replacementText.replace(/\\vec\s*/g, '');
                             replacementText = replacementText.replace(/[¯]+/g, '');
+                            
+                            // Обрабатываем градусы
+                            replacementText = replacementText.replace(/\\circ/g, '°');
+                            replacementText = replacementText.replace(/\^\\circ/g, '°');
+                            replacementText = replacementText.replace(/\^\{\\circ\}/g, '°');
+                            
+                            // Обрабатываем умножение
+                            replacementText = replacementText.replace(/\\cdot\s*/g, '·');
+                            replacementText = replacementText.replace(/\\cdotj/g, '·j');
+                            replacementText = replacementText.replace(/\\cdot\s*j/g, '·j');
+                            
+                            // Убираем фигурные скобки LaTeX
+                            replacementText = replacementText.replace(/\{([^}]+)\}/g, '$1');
+                            
                             // Восстанавливаем пробелы вокруг знака равенства
                             replacementText = replacementText.replace(/([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\)])=([a-zA-Zα-ωΑ-Ωа-яА-Я0-9_\(])/g, '$1 = $2');
                             replacementText = replacementText.trim();
@@ -2116,6 +2208,19 @@
                         mathText = mathText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
                         mathText = mathText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
                         mathText = mathText.replace(/[¯]+/g, '');
+                        
+                        // Обрабатываем градусы
+                        mathText = mathText.replace(/\\circ/g, '°');
+                        mathText = mathText.replace(/\^\\circ/g, '°');
+                        mathText = mathText.replace(/\^\{\\circ\}/g, '°');
+                        
+                        // Обрабатываем умножение
+                        mathText = mathText.replace(/\\cdot\s*/g, '·');
+                        mathText = mathText.replace(/\\cdotj/g, '·j');
+                        mathText = mathText.replace(/\\cdot\s*j/g, '·j');
+                        
+                        // Убираем фигурные скобки LaTeX
+                        mathText = mathText.replace(/\{([^}]+)\}/g, '$1');
                         
                         const textNode = document.createTextNode(' ' + mathText.trim() + ' ');
                         mathEl.parentNode.replaceChild(textNode, mathEl);
@@ -2164,6 +2269,20 @@
                 text = text.replace(/([¯]+)([a-zA-Zа-яА-Я])/g, '$2');
                 text = text.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
                 text = text.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
+                
+                // Обрабатываем градусы
+                text = text.replace(/\\circ/g, '°');
+                text = text.replace(/\^\\circ/g, '°');
+                text = text.replace(/\^\{\\circ\}/g, '°');
+                
+                // Обрабатываем умножение
+                text = text.replace(/\\cdot\s*/g, '·');
+                text = text.replace(/\\cdotj/g, '·j');
+                text = text.replace(/\\cdot\s*j/g, '·j');
+                
+                // Убираем фигурные скобки LaTeX (но сохраняем содержимое)
+                text = text.replace(/\{([^}]+)\}/g, '$1');
+                
                 text = text.replace(/\^\{([^}]+)\}/g, '^$1');
                 text = text.replace(/_\{([^}]+)\}/g, '_$1');
                 text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1');
@@ -2173,6 +2292,14 @@
                     text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)\s+\1\s*=\s*\2/g, '$1 = $2');
                     text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)\s+\1\s*=\s*\2/g, '$1 = $2');
                 }
+                
+                // Обрабатываем незакрытые фигурные скобки (остатки от LaTeX)
+                text = text.replace(/\{([^}]*)$/g, '$1'); // Незакрытая скобка в конце
+                text = text.replace(/^([^{]*)\}/g, '$1'); // Открывающая скобка в начале
+                
+                // Обрабатываем векторы в фигурных скобках (если остались после предыдущей обработки)
+                text = text.replace(/\{([F_0-9]+)\}/g, '$1'); // {F_1} -> F_1
+                text = text.replace(/\{([F_0-9]+)\s*=\s*([^}]+)\}/g, '$1 = $2'); // {F_1 = ...} -> F_1 = ...
                 
                 // Нормализуем пробелы
                 text = text.replace(/\s{2,}/g, ' ');

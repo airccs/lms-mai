@@ -204,7 +204,7 @@ async function startAutoScan() {
 
     try {
         // Открываем новую вкладку для автосканирования
-        const scanUrl = chrome.runtime.getURL('html/auto-scan.html');
+        const scanUrl = chrome.runtime.getURL('html/auto-scan-react.html');
         window.open(scanUrl, '_blank');
         
         setTimeout(() => {

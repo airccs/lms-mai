@@ -747,6 +747,7 @@
         }
 
         extractQuestionText(element) {
+            // НОВЫЙ ПОДХОД: Простое извлечение текста без сложной логики с параметрами
             // Пытаемся найти текст вопроса в разных местах
             let qtext = element.querySelector('.qtext');
             
@@ -768,20 +769,202 @@
             }
             
             if (qtext) {
-                // ВАЖНО: Сначала извлекаем параметры из исходного элемента ДО клонирования
-                // Ищем все параметры в формате "переменная = значение" в исходном DOM
-                const originalQtext = element.querySelector('.qtext') || 
-                                      element.querySelector('.questiontext, .question-text, [class*="question"]') ||
-                                      element;
+                // Убираем скрытые элементы
+                qtext.querySelectorAll('.accesshide, .sr-only, [aria-hidden="true"]').forEach(el => el.remove());
                 
-                // Извлекаем параметры из исходного DOM, включая те, что рядом с .nolink
-                const originalNolinks = originalQtext ? Array.from(originalQtext.querySelectorAll('.nolink, span.nolink')) : [];
-                const params = [];
+                // Убираем скрипты и стили
+                qtext.querySelectorAll('script, style').forEach(el => el.remove());
                 
-                // Создаем клон всего текста вопроса для определения позиций
-                const fullTextClone = originalQtext ? originalQtext.cloneNode(true) : null;
-                if (fullTextClone) {
-                    fullTextClone.querySelectorAll('script, style').forEach(el => el.remove());
+                // Убираем кнопки и элементы управления расширения
+                qtext.querySelectorAll('.quiz-solver-btn, .quiz-solver-buttons, .quiz-solver-saved, .quiz-solver-stats, button').forEach(el => el.remove());
+                
+                // Обрабатываем MathJax элементы ПЕРЕД обработкой .nolink
+                const mathElements = qtext.querySelectorAll('.MathJax, [class*="math"], [data-math], [class*="MathJax"], mjx-container, mjx-math');
+                mathElements.forEach(mathEl => {
+                    let mathText = mathEl.getAttribute('alttext') || 
+                                  mathEl.getAttribute('data-math') ||
+                                  mathEl.getAttribute('aria-label') ||
+                                  mathEl.textContent ||
+                                  '';
+                    
+                    if (mathText) {
+                        // Очищаем от LaTeX команд
+                        mathText = mathText.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
+                        mathText = mathText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
+                        mathText = mathText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
+                        mathText = mathText.replace(/[¯]+/g, '');
+                        
+                        const textNode = document.createTextNode(' ' + mathText.trim() + ' ');
+                        mathEl.parentNode.replaceChild(textNode, mathEl);
+                    } else {
+                        mathEl.remove();
+                    }
+                });
+                
+                // Обрабатываем элементы <sup> и <sub>
+                qtext.querySelectorAll('sup').forEach(supEl => {
+                    const supText = supEl.textContent || '';
+                    if (supText) {
+                        const replacement = supText.match(/^\d+$/) ? '^' + supText : supText;
+                        const textNode = document.createTextNode(replacement);
+                        supEl.parentNode.replaceChild(textNode, supEl);
+                    } else {
+                        supEl.remove();
+                    }
+                });
+                
+                qtext.querySelectorAll('sub').forEach(subEl => {
+                    const subText = subEl.textContent || '';
+                    if (subText) {
+                        const replacement = subText.match(/^\d+$/) ? '_' + subText : subText;
+                        const textNode = document.createTextNode(replacement);
+                        subEl.parentNode.replaceChild(textNode, subEl);
+                    } else {
+                        subEl.remove();
+                    }
+                });
+                
+                // ПРОСТАЯ ЗАМЕНА .nolink: просто берем их textContent
+                const nolinks = Array.from(qtext.querySelectorAll('.nolink, span.nolink'));
+                nolinks.forEach(nolinkEl => {
+                    let nolinkText = nolinkEl.textContent || nolinkEl.innerText || '';
+                    
+                    // Очищаем от LaTeX команд
+                    nolinkText = nolinkText.replace(/[¯]+/g, '');
+                    nolinkText = nolinkText.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
+                    nolinkText = nolinkText.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
+                    nolinkText = nolinkText.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
+                    
+                    // Если в .nolink есть текст, заменяем на него, иначе просто удаляем
+                    if (nolinkText.trim()) {
+                        const textNode = document.createTextNode(' ' + nolinkText.trim() + ' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    } else {
+                        const textNode = document.createTextNode(' ');
+                        nolinkEl.parentNode.replaceChild(textNode, nolinkEl);
+                    }
+                });
+                
+                // Убираем блоки с ответами и вариантами
+                qtext.querySelectorAll('.answer, .ablock, .formulation').forEach(el => {
+                    if (el.querySelector('input[type="radio"], input[type="checkbox"]')) {
+                        el.remove();
+                    }
+                });
+                
+                // Получаем текст
+                let text = qtext.textContent || qtext.innerText || '';
+                text = text.trim();
+                
+                // Обрабатываем LaTeX команды в тексте
+                text = text.replace(/\\overline\s*\{?([^}]+)\}?/g, '$1');
+                text = text.replace(/([a-zA-Zа-яА-Я])([¯]+)/g, '$1');
+                text = text.replace(/([¯]+)([a-zA-Zа-яА-Я])/g, '$2');
+                text = text.replace(/\\hat\s*\{?([^}]+)\}?/g, '$1');
+                text = text.replace(/\\vec\s*\{?([^}]+)\}?/g, '$1');
+                text = text.replace(/\^\{([^}]+)\}/g, '^$1');
+                text = text.replace(/_\{([^}]+)\}/g, '_$1');
+                text = text.replace(/\\[a-zA-Z]+\s*\{?([^}]*)\}?/g, '$1');
+                
+                // Убираем дубликаты параметров (простой подход)
+                for (let i = 0; i < 3; i++) {
+                    text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)\s+\1\s*=\s*\2/g, '$1 = $2');
+                    text = text.replace(/([a-zA-Zа-яА-Я0-9]+)\s*=\s*(\d+(?:\.\d+)?)\s+\1\s*=\s*\2/g, '$1 = $2');
+                }
+                
+                // Нормализуем пробелы
+                text = text.replace(/\s{2,}/g, ' ');
+                text = text.replace(/([a-zA-Zа-яА-Я0-9])\s*=\s*([-]?\d+(?:\.\d+)?[a-zA-Zа-яА-Я0-9]*)/g, '$1 = $2');
+                text = text.replace(/(\d+(?:\.\d+)?)\s{2,}([а-яА-Я]+)/g, '$1 $2');
+                text = text.trim();
+                
+                return text || 'Текст вопроса не сохранен';
+            }
+            
+            return 'Текст вопроса не сохранен';
+        }
+        
+        extractAnswers(element, type) {
+            const answers = [];
+            
+            if (type === 'multichoice' || type === 'truefalse') {
+                const inputs = element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                inputs.forEach(input => {
+                    const label = element.querySelector(`label[for="${input.id}"]`) || 
+                                 input.closest('label') ||
+                                 input.parentElement;
+                    
+                    if (label) {
+                        const text = label.innerText.replace(input.value, '').trim();
+                        const isCorrect = this.isAnswerCorrect(label, element);
+                        
+                        answers.push({
+                            value: input.value,
+                            text: text,
+                            input: input,
+                            label: label,
+                            correct: isCorrect
+                        });
+                    }
+                });
+            } else if (type === 'shortanswer' || type === 'numerical') {
+                const input = element.querySelector('input[type="text"], input[type="number"]');
+                if (input) {
+                    answers.push({
+                        input: input,
+                        value: input.value
+                    });
+                }
+            }
+            
+            return answers;
+        }
+        
+        extractOptions(element, type) {
+            if (type === 'multichoice' || type === 'truefalse') {
+                const options = [];
+                const inputs = element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                inputs.forEach(input => {
+                    const label = element.querySelector(`label[for="${input.id}"]`) || 
+                                 input.closest('label') ||
+                                 input.parentElement;
+                    
+                    if (label) {
+                        const text = label.innerText.replace(input.value, '').trim();
+                        options.push({
+                            value: input.value,
+                            text: text
+                        });
+                    }
+                });
+                return options;
+            }
+            return [];
+        }
+        
+        extractOptions(element, type) {
+            if (type === 'multichoice' || type === 'truefalse') {
+                const options = [];
+                const inputs = element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                inputs.forEach(input => {
+                    const label = element.querySelector(`label[for="${input.id}"]`) || 
+                                 input.closest('label') ||
+                                 input.parentElement;
+                    
+                    if (label) {
+                        const text = label.innerText.replace(input.value, '').trim();
+                        options.push({
+                            value: input.value,
+                            text: text
+                        });
+                    }
+                });
+                return options;
+            }
+            return [];
+        }
+        
+        // Старый сложный код удален - используем простой подход в extractQuestionText
                     
                     // Обрабатываем sup/sub в клоне
                     fullTextClone.querySelectorAll('sup').forEach(supEl => {
@@ -1410,42 +1593,6 @@
                 return text;
             }
             return null;
-        }
-
-        extractAnswers(element, type) {
-            const answers = [];
-            
-            if (type === 'multichoice' || type === 'truefalse') {
-                const inputs = element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-                inputs.forEach(input => {
-                    const label = element.querySelector(`label[for="${input.id}"]`) || 
-                                 input.closest('label') ||
-                                 input.parentElement;
-                    
-                    if (label) {
-                        const text = label.innerText.replace(input.value, '').trim();
-                        const isCorrect = this.isAnswerCorrect(label, element);
-                        
-                        answers.push({
-                            value: input.value,
-                            text: text,
-                            input: input,
-                            label: label,
-                            correct: isCorrect
-                        });
-                    }
-                });
-            } else if (type === 'shortanswer' || type === 'numerical') {
-                const input = element.querySelector('input[type="text"], input[type="number"]');
-                if (input) {
-                    answers.push({
-                        input: input,
-                        value: input.value
-                    });
-                }
-            }
-            
-            return answers;
         }
 
         extractOptions(element, type) {

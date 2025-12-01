@@ -184,7 +184,7 @@ const App: React.FC = () => {
         response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
       } catch (err) {
         console.warn('Error sending message to background:', err);
-        checkApiConnection('http://130.61.200.70');
+        checkApiConnection('http://130.61.200.70:8080');
         return;
       }
 
@@ -192,11 +192,11 @@ const App: React.FC = () => {
         const apiUrl = response.settings.apiUrl;
         checkApiConnection(apiUrl);
       } else {
-        checkApiConnection('http://130.61.200.70');
+        checkApiConnection('http://130.61.200.70:8080');
       }
     } catch (e) {
       console.error('Error loading API settings:', e);
-      checkApiConnection('http://130.61.200.70');
+      checkApiConnection('http://130.61.200.70:8080');
     }
   };
 

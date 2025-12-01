@@ -196,7 +196,7 @@ const App: React.FC = () => {
       }
     } catch (e) {
       console.error('Error loading API settings:', e);
-      checkApiConnection('http://130.61.200.70:3000');
+      checkApiConnection('http://130.61.200.70');
     }
   };
 

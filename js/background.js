@@ -122,7 +122,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Всегда возвращаем фиксированные настройки
         const fixedSettings = {
             enabled: true,
-            apiUrl: 'http://130.61.200.70:3000',
+            apiUrl: 'http://130.61.200.70',
             apiKey: ''
         };
         // Обновляем настройки в хранилище, чтобы они всегда были правильными
@@ -136,7 +136,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Игнорируем попытки изменить настройки - они всегда фиксированные
         const fixedSettings = {
             enabled: true,
-            apiUrl: 'http://130.61.200.70:3000',
+            apiUrl: 'http://130.61.200.70',
             apiKey: ''
         };
         chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {

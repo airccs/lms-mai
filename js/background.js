@@ -332,6 +332,13 @@ async function handleServerSync(request, sendResponse) {
         if (response && response.ok) {
             const data = await response.json();
             console.log('[handleServerSync] Данные получены:', Object.keys(data).length, 'ключей');
+            console.log('[handleServerSync] Структура данных:', JSON.stringify(data).substring(0, 200));
+            
+            // Для getAllStatistics проверяем наличие statistics
+            if (syncAction === 'getAllStatistics' && data.statistics) {
+                console.log('[handleServerSync] Статистика найдена:', Object.keys(data.statistics).length, 'вопросов');
+            }
+            
             sendResponse({ success: true, data: data });
         } else {
             const status = response?.status || 0;

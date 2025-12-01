@@ -184,7 +184,7 @@ const App: React.FC = () => {
         response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
       } catch (err) {
         console.warn('Error sending message to background:', err);
-        checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
+        checkApiConnection('http://130.61.200.70:3000');
         return;
       }
 
@@ -192,11 +192,11 @@ const App: React.FC = () => {
         const apiUrl = response.settings.apiUrl;
         checkApiConnection(apiUrl);
       } else {
-        checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
+        checkApiConnection('http://130.61.200.70:3000');
       }
     } catch (e) {
       console.error('Error loading API settings:', e);
-      checkApiConnection('https://lms-mai-api.iljakir-06.workers.dev');
+      checkApiConnection('http://130.61.200.70:3000');
     }
   };
 
@@ -209,7 +209,7 @@ const App: React.FC = () => {
       });
 
       if (response.ok) {
-        setSyncStatus('✅ Соединение установлено');
+        setSyncStatus('Соединение установлено');
       } else {
         setSyncStatus('⚠️ Сервер недоступен');
       }

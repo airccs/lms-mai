@@ -11,11 +11,11 @@
 // Для локального сервера
 chrome.storage.local.set({ apiUrl: 'http://localhost:3000' });
 
-// Для Oracle сервера
-chrome.storage.local.set({ apiUrl: 'https://your-oracle-server.com' });
+// Для Oracle сервера (текущий)
+chrome.storage.local.set({ apiUrl: 'http://130.61.200.70:3000' });
 
-// Вернуться к Cloudflare Worker
-chrome.storage.local.set({ apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev' });
+// Вернуться к Oracle Cloud серверу (по умолчанию)
+chrome.storage.local.set({ apiUrl: 'http://130.61.200.70:3000' });
 ```
 
 5. Перезагрузите расширение (chrome://extensions → кнопка обновления)
@@ -25,7 +25,7 @@ chrome.storage.local.set({ apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev' 
 1. Откройте `js/background.js`
 2. Найдите строку:
 ```javascript
-const defaultApiUrl = 'https://lms-mai-api.iljakir-06.workers.dev';
+const defaultApiUrl = 'http://130.61.200.70:3000';
 ```
 3. Измените на:
 ```javascript
@@ -38,7 +38,7 @@ const defaultApiUrl = 'http://localhost:3000';  // или ваш Oracle серв
 В Chrome DevTools Console:
 ```javascript
 chrome.storage.local.get(['apiUrl'], (result) => {
-  console.log('Текущий API URL:', result.apiUrl || 'по умолчанию (Cloudflare)');
+  console.log('Текущий API URL:', result.apiUrl || 'по умолчанию (Oracle Cloud)');
 });
 ```
 

@@ -14,6 +14,18 @@
             this.statistics = new Map();
             this.isProcessingReview = false; // Флаг для предотвращения повторных вызовов
             this.isForceScanning = false; // Флаг для принудительного автосканирования
+            
+            // Оптимизация запросов к серверу
+            this.serverCache = new Map(); // Кэш для запросов статистики и ответов (questionHash -> {data, timestamp, type})
+            this.serverSyncDisabled = false; // Флаг для отключения синхронизации при ошибках
+            this.serverSyncDisabledUntil = 0; // Время до которого синхронизация отключена
+            this.pendingSyncRequests = []; // Очередь запросов для батчинга
+            this.syncBatchTimeout = null; // Таймер для батчинга
+            this.lastSyncTime = 0; // Время последнего запроса к серверу
+            this.MIN_SYNC_INTERVAL = 500; // Минимальная задержка между запросами (мс)
+            this.CACHE_TTL = 5 * 60 * 1000; // Время жизни кэша (5 минут)
+            this.SYNC_DISABLE_DURATION = 60 * 60 * 1000; // Время отключения синхронизации при ошибках (1 час)
+            
             this.init();
         }
 
@@ -21,6 +33,7 @@
             console.log('[Moodle Quiz Solver] Init started');
             await this.loadSavedAnswers();
             await this.loadStatistics();
+            await this.loadSyncState();
             
             console.log('[Moodle Quiz Solver] Checking if review page...');
             // Проверяем, находимся ли мы на странице результатов
@@ -30,8 +43,8 @@
                 this.processReviewPage();
             } else {
                 console.log('[Moodle Quiz Solver] Not a review page, parsing questions...');
-                this.parseQuestions();
-                this.addSolveButtons();
+            this.parseQuestions();
+            this.addSolveButtons();
                 this.setupAutoSave(); // Настраиваем автоматическое сохранение
                 this.observeDOM(); // Включаем observeDOM только на страницах вопросов
             }
@@ -62,6 +75,39 @@
                 // Для других ошибок логируем
                 console.error('[safeSendMessage] Ошибка при отправке сообщения:', error, message);
                 return null;
+            }
+        }
+
+        async safeStorageGet(keys) {
+            try {
+                if (!chrome || !chrome.storage || !chrome.storage.local) {
+                    console.warn('[safeStorageGet] chrome.storage.local недоступен');
+                    return {};
+                }
+                return await chrome.storage.local.get(keys);
+            } catch (error) {
+                if (error.message && error.message.includes('Extension context invalidated')) {
+                    console.warn('[safeStorageGet] Контекст расширения недействителен, игнорирую ошибку:', error.message);
+                    return {};
+                }
+                console.error('[safeStorageGet] Ошибка при получении данных из storage:', error);
+                return {};
+            }
+        }
+
+        async safeStorageSet(items) {
+            try {
+                if (!chrome || !chrome.storage || !chrome.storage.local) {
+                    console.warn('[safeStorageSet] chrome.storage.local недоступен');
+                    return;
+                }
+                await chrome.storage.local.set(items);
+            } catch (error) {
+                if (error.message && error.message.includes('Extension context invalidated')) {
+                    console.warn('[safeStorageSet] Контекст расширения недействителен, игнорирую ошибку:', error.message);
+                    return;
+                }
+                console.error('[safeStorageSet] Ошибка при сохранении данных в storage:', error);
             }
         }
 
@@ -1881,7 +1927,7 @@
                 console.log(`Loaded ${loadedCount} questions from local storage`);
 
                 // Всегда загружаем статистику с сервера (синхронизация всегда включена)
-                const settings = { enabled: true, apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev', apiKey: '' };
+                const settings = { enabled: true, apiUrl: 'http://130.61.200.70:3000', apiKey: '' };
                 await this.loadStatisticsFromServer(settings);
             } catch (e) {
                 console.error('Error loading statistics:', e);
@@ -1890,35 +1936,53 @@
 
         async loadStatisticsFromServer(settings) {
             try {
+                console.log('[loadStatisticsFromServer] Начало загрузки статистики с сервера');
                 const response = await this.safeSendMessage({
                     action: 'syncWithServer',
                     syncAction: 'getAllStatistics'
                 });
 
-                if (response && response.success && response.data) {
-                    const serverStats = response.data.statistics || {};
-                    let loadedCount = 0;
+                console.log('[loadStatisticsFromServer] Ответ от сервера:', response);
 
-                    // Объединяем статистику с сервера с локальной
-                    for (const [key, value] of Object.entries(serverStats)) {
-                        const localStats = this.statistics.get(key);
-                        if (localStats) {
-                            // Объединяем: берем максимум из обоих источников
-                            const merged = {
-                                totalAttempts: Math.max(localStats.totalAttempts || 0, value.totalAttempts || 0),
-                                correctAttempts: Math.max(localStats.correctAttempts || 0, value.correctAttempts || 0),
-                                answers: { ...localStats.answers, ...value.answers },
-                                errors: [...(localStats.errors || []), ...(value.errors || [])]
-                            };
-                            this.statistics.set(key, merged);
-                        } else {
-                            this.statistics.set(key, value);
-                        }
-                        loadedCount++;
-                    }
-
-                    console.log(`Loaded ${loadedCount} questions from server`);
+                if (!response) {
+                    console.warn('[loadStatisticsFromServer] Нет ответа от сервера');
+                    return;
                 }
+
+                if (!response.success) {
+                    console.warn('[loadStatisticsFromServer] Запрос не успешен:', response.error || 'Unknown error');
+                    return;
+                }
+
+                if (!response.data) {
+                    console.warn('[loadStatisticsFromServer] Нет данных в ответе');
+                    return;
+                }
+
+                const serverStats = response.data.statistics || {};
+                let loadedCount = 0;
+
+                console.log('[loadStatisticsFromServer] Получено статистики с сервера:', Object.keys(serverStats).length, 'вопросов');
+
+                // Объединяем статистику с сервера с локальной
+                for (const [key, value] of Object.entries(serverStats)) {
+                    const localStats = this.statistics.get(key);
+                    if (localStats) {
+                        // Объединяем: берем максимум из обоих источников
+                        const merged = {
+                            totalAttempts: Math.max(localStats.totalAttempts || 0, value.totalAttempts || 0),
+                            correctAttempts: Math.max(localStats.correctAttempts || 0, value.correctAttempts || 0),
+                            answers: { ...localStats.answers, ...value.answers },
+                            errors: [...(localStats.errors || []), ...(value.errors || [])]
+                        };
+                        this.statistics.set(key, merged);
+                    } else {
+                        this.statistics.set(key, value);
+                    }
+                    loadedCount++;
+                }
+
+                console.log(`Loaded ${loadedCount} questions from server`);
             } catch (e) {
                 console.error('Error loading statistics from server:', e);
             }
@@ -1978,26 +2042,15 @@
                     this.savedAnswers.set(questionHash, answerData);
                     console.log(`[Save] ${existingData ? 'Обновлен' : 'Сохранен'} ответ для вопроса (hash: ${questionHash}, isCorrect: ${isCorrect})`);
                     
-                    // Синхронизируем ответ с сервером для других пользователей
-                    try {
-                        const syncResponse = await this.safeSendMessage({
-                            action: 'syncWithServer',
-                            syncAction: 'saveAnswer',
-                            questionHash: questionHash,
-                            answer: answer,
-                            isCorrect: answerData.isCorrect,
-                            questionText: answerData.questionText,
-                            questionImage: answerData.questionImage
-                        });
-                        
-                        if (syncResponse && syncResponse.success) {
-                            console.log('[Save] Ответ синхронизирован с сервером');
-                        } else {
-                            console.warn('[Save] Не удалось синхронизировать ответ с сервером');
-                        }
-                    } catch (syncError) {
-                        console.warn('[Save] Ошибка синхронизации ответа с сервером:', syncError);
-                    }
+                    // Добавляем запрос на синхронизацию в очередь (батчинг)
+                    this.queueSyncRequest({
+                        syncAction: 'saveAnswer',
+                        questionHash: questionHash,
+                        answer: answer,
+                        isCorrect: answerData.isCorrect,
+                        questionText: answerData.questionText,
+                        questionImage: answerData.questionImage
+                    });
                     
                     return true; // Возвращаем true если было обновление
                 }
@@ -2040,27 +2093,13 @@
                     [`stats_${questionHash}`]: stats
                 });
 
-                // Отправляем на сервер для синхронизации между пользователями (всегда включено)
-                try {
-                    const response = await this.safeSendMessage({
-                        action: 'syncWithServer',
-                        questionHash: questionHash,
-                        answer: answer,
-                        isCorrect: isCorrect,
-                        syncAction: 'submitAnswer'
-                    });
-
-                    if (response && response.success && response.data) {
-                        // Обновляем статистику с сервера
-                        const serverStats = response.data.statistics;
-                        if (serverStats) {
-                            this.statistics.set(questionHash, serverStats);
-                        }
-                        console.log('Statistics synced with server');
-                    }
-                } catch (serverError) {
-                    console.warn('Failed to sync with server, using local only:', serverError);
-                }
+                // Добавляем запрос на синхронизацию статистики в очередь (батчинг)
+                this.queueSyncRequest({
+                    syncAction: 'submitAnswer',
+                    questionHash: questionHash,
+                    answer: answer,
+                    isCorrect: isCorrect
+                });
             } catch (e) {
                 console.error('Error updating statistics:', e);
             }
@@ -2588,7 +2627,7 @@
             
             return 'Текст вопроса не сохранен';
         }
-        
+
         extractAnswers(element, type) {
             const answers = [];
             
@@ -2624,7 +2663,7 @@
             
             return answers;
         }
-        
+
         extractOptions(element, type) {
             if (type === 'multichoice' || type === 'truefalse') {
                 const options = [];
@@ -2668,7 +2707,7 @@
             }
             return [];
         }
-        
+
         isAnswerCorrect(label, container) {
             // Проверяем классы правильности
             if (label.classList.contains('correct') || 
@@ -2984,14 +3023,46 @@
                 
                 // Загружаем ответы других пользователей с сервера
                 try {
-                    const serverResponse = await this.safeSendMessage({
-                        action: 'syncWithServer',
-                        syncAction: 'getSavedAnswers',
-                        questionHash: question.hash
-                    });
+                    // Проверяем кэш
+                    const cacheKey = `answers_${question.hash}`;
+                    const cached = this.serverCache.get(cacheKey);
+                    let serverAnswers = null;
                     
-                    if (serverResponse && serverResponse.success && serverResponse.data && serverResponse.data.answers) {
-                        const serverAnswers = serverResponse.data.answers;
+                    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL && cached.type === 'answers') {
+                        console.log('[Method 1] Используем кэш для сохраненных ответов', question.hash);
+                        serverAnswers = cached.data;
+                    } else {
+                        // Проверяем, не отключена ли синхронизация
+                        if (!this.serverSyncDisabled && Date.now() >= this.serverSyncDisabledUntil) {
+                            // Проверяем минимальный интервал между запросами
+                            const timeSinceLastSync = Date.now() - this.lastSyncTime;
+                            if (timeSinceLastSync < this.MIN_SYNC_INTERVAL) {
+                                await new Promise(resolve => setTimeout(resolve, this.MIN_SYNC_INTERVAL - timeSinceLastSync));
+                            }
+
+                            const serverResponse = await this.safeSendMessage({
+                                action: 'syncWithServer',
+                                syncAction: 'getSavedAnswers',
+                                questionHash: question.hash
+                            });
+                            
+                            this.lastSyncTime = Date.now();
+                            
+                            if (serverResponse && serverResponse.success && serverResponse.data && serverResponse.data.answers) {
+                                serverAnswers = serverResponse.data.answers;
+                                // Сохраняем в кэш
+                                this.serverCache.set(cacheKey, {
+                                    data: serverAnswers,
+                                    timestamp: Date.now(),
+                                    type: 'answers'
+                                });
+                            } else if (serverResponse && serverResponse.error) {
+                                this.handleServerError(serverResponse.error, serverResponse.statusCode);
+                            }
+                        }
+                    }
+                    
+                    if (serverAnswers && serverAnswers.length > 0) {
                         console.log(`[Method 1] Найдено ${serverAnswers.length} ответов с сервера`);
                         
                         // Ищем правильный ответ (isCorrect === true)
@@ -3008,7 +3079,7 @@
                         }
                         
                         // Если правильного ответа нет, используем первый доступный
-                        if (serverAnswers.length > 0 && serverAnswers[0].answer) {
+                        if (serverAnswers[0].answer) {
                             if (this.applySavedAnswer(question, serverAnswers[0].answer)) {
                                 methods.push('Сохраненные ответы (с сервера)');
                                 this.showNotification('✅ Применен ответ другого пользователя!', 'success');
@@ -3021,6 +3092,7 @@
                     }
                 } catch (serverError) {
                     console.warn('[Method 1] Ошибка загрузки ответов с сервера:', serverError);
+                    this.handleServerError(serverError.message, serverError.statusCode);
                 }
                 
                 console.log('[Method 1] Сохраненные ответы не найдены');
@@ -3145,15 +3217,60 @@
 
         async loadQuestionStatisticsFromServer(question) {
             try {
-                // Всегда загружаем статистику с сервера (синхронизация всегда включена)
+                // Проверяем кэш
+                const cached = this.serverCache.get(question.hash);
+                if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+                    console.log('[loadQuestionStatisticsFromServer] Используем кэш для вопроса', question.hash);
+                    const serverStats = cached.data;
+                    if (serverStats) {
+                        const localStats = this.statistics.get(question.hash);
+                        if (localStats) {
+                            const merged = {
+                                totalAttempts: (localStats.totalAttempts || 0) + (serverStats.totalAttempts || 0),
+                                correctAttempts: (localStats.correctAttempts || 0) + (serverStats.correctAttempts || 0),
+                                answers: this.mergeAnswers(localStats.answers || {}, serverStats.answers || {}),
+                                errors: this.mergeErrors(localStats.errors || [], serverStats.errors || [])
+                            };
+                            this.statistics.set(question.hash, merged);
+                            question.statistics = merged;
+                        } else {
+                            this.statistics.set(question.hash, serverStats);
+                            question.statistics = serverStats;
+                        }
+                    }
+                    return;
+                }
+
+                // Проверяем, не отключена ли синхронизация
+                if (this.serverSyncDisabled || Date.now() < this.serverSyncDisabledUntil) {
+                    console.log('[loadQuestionStatisticsFromServer] Синхронизация отключена, используем локальные данные');
+                    return;
+                }
+
+                // Проверяем минимальный интервал между запросами
+                const timeSinceLastSync = Date.now() - this.lastSyncTime;
+                if (timeSinceLastSync < this.MIN_SYNC_INTERVAL) {
+                    await new Promise(resolve => setTimeout(resolve, this.MIN_SYNC_INTERVAL - timeSinceLastSync));
+                }
+
+                // Загружаем статистику с сервера
                 const response = await this.safeSendMessage({
                     action: 'syncWithServer',
                     questionHash: question.hash,
                     syncAction: 'getStatistics'
                 });
 
+                this.lastSyncTime = Date.now();
+
                 if (response && response.success && response.data && response.data.statistics) {
                     const serverStats = response.data.statistics;
+                    // Сохраняем в кэш
+                    this.serverCache.set(question.hash, {
+                        data: serverStats,
+                        timestamp: Date.now(),
+                        type: 'statistics'
+                    });
+                    
                     if (serverStats) {
                         // Объединяем с локальной статистикой
                         const localStats = this.statistics.get(question.hash);
@@ -3172,9 +3289,13 @@
                             question.statistics = serverStats;
                         }
                     }
+                } else if (response && response.error) {
+                    // Обрабатываем ошибки сервера
+                    this.handleServerError(response.error, response.statusCode);
                 }
             } catch (e) {
                 console.warn('Failed to load statistics from server:', e);
+                this.handleServerError(e.message, e.statusCode);
             }
         }
 
@@ -3184,6 +3305,130 @@
                 merged[key] = (merged[key] || 0) + count;
             }
             return merged;
+        }
+
+        // Загрузка состояния синхронизации из storage
+        async loadSyncState() {
+            try {
+                const state = await this.safeStorageGet(['serverSyncDisabled', 'serverSyncDisabledUntil']);
+                if (state.serverSyncDisabled && state.serverSyncDisabledUntil) {
+                    const now = Date.now();
+                    if (now < state.serverSyncDisabledUntil) {
+                        this.serverSyncDisabled = true;
+                        this.serverSyncDisabledUntil = state.serverSyncDisabledUntil;
+                        const remainingMinutes = Math.ceil((state.serverSyncDisabledUntil - now) / 1000 / 60);
+                        console.log(`[loadSyncState] Синхронизация отключена, осталось ${remainingMinutes} минут`);
+                    } else {
+                        // Время истекло, сбрасываем флаг
+                        this.serverSyncDisabled = false;
+                        this.serverSyncDisabledUntil = 0;
+                        await this.safeStorageSet({
+                            serverSyncDisabled: false,
+                            serverSyncDisabledUntil: 0
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('[loadSyncState] Ошибка загрузки состояния синхронизации:', e);
+            }
+        }
+
+        // Обработка ошибок сервера (429, 503 и т.д.)
+        handleServerError(error, statusCode) {
+            const errorStr = error?.toString() || '';
+            const shouldDisable = statusCode === 429 || statusCode === 503 || 
+                                 errorStr.includes('429') || errorStr.includes('503') || 
+                                 errorStr.includes('quota') || errorStr.includes('limit') ||
+                                 errorStr.includes('rate limit') || errorStr.includes('too many requests');
+            
+            if (shouldDisable) {
+                console.warn('[handleServerError] Обнаружена ошибка сервера (лимит запросов), отключаю синхронизацию на', this.SYNC_DISABLE_DURATION / 1000 / 60, 'минут');
+                this.serverSyncDisabled = true;
+                this.serverSyncDisabledUntil = Date.now() + this.SYNC_DISABLE_DURATION;
+                
+                // Сохраняем состояние в storage
+                this.safeStorageSet({
+                    serverSyncDisabled: true,
+                    serverSyncDisabledUntil: this.serverSyncDisabledUntil
+                });
+            }
+        }
+
+        // Добавление запроса в очередь для батчинга
+        queueSyncRequest(request) {
+            // Проверяем, не отключена ли синхронизация
+            if (this.serverSyncDisabled || Date.now() < this.serverSyncDisabledUntil) {
+                console.log('[queueSyncRequest] Синхронизация отключена, пропускаю запрос');
+                return;
+            }
+
+            this.pendingSyncRequests.push(request);
+
+            // Если таймер еще не установлен, устанавливаем его
+            if (!this.syncBatchTimeout) {
+                this.syncBatchTimeout = setTimeout(() => {
+                    this.processSyncQueue();
+                }, 1000); // Обрабатываем очередь каждую секунду
+            }
+        }
+
+        // Обработка очереди запросов (батчинг)
+        async processSyncQueue() {
+            if (this.pendingSyncRequests.length === 0) {
+                this.syncBatchTimeout = null;
+                return;
+            }
+
+            // Берем до 5 запросов за раз
+            const batch = this.pendingSyncRequests.splice(0, 5);
+            this.syncBatchTimeout = null;
+
+            // Проверяем минимальный интервал между запросами
+            const timeSinceLastSync = Date.now() - this.lastSyncTime;
+            if (timeSinceLastSync < this.MIN_SYNC_INTERVAL) {
+                await new Promise(resolve => setTimeout(resolve, this.MIN_SYNC_INTERVAL - timeSinceLastSync));
+            }
+
+            // Отправляем запросы последовательно
+            for (const request of batch) {
+                try {
+                    const response = await this.safeSendMessage({
+                        action: 'syncWithServer',
+                        ...request
+                    });
+
+                    this.lastSyncTime = Date.now();
+
+                    if (response && response.success) {
+                        if (request.syncAction === 'submitAnswer' && response.data) {
+                            // Обновляем статистику с сервера
+                            const serverStats = response.data.statistics;
+                            if (serverStats) {
+                                this.statistics.set(request.questionHash, serverStats);
+                            }
+                        }
+                    } else if (response && response.error) {
+                        this.handleServerError(response.error, response.statusCode);
+                        // Прерываем обработку очереди при ошибке
+                        break;
+                    }
+                } catch (error) {
+                    console.warn('[processSyncQueue] Ошибка при синхронизации:', error);
+                    this.handleServerError(error.message, error.statusCode);
+                    // Прерываем обработку очереди при ошибке
+                    break;
+                }
+
+                // Небольшая задержка между запросами
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // Если в очереди еще есть запросы, обрабатываем их
+            if (this.pendingSyncRequests.length > 0) {
+                this.syncBatchTimeout = setTimeout(() => {
+                    this.processSyncQueue();
+                }, 1000);
+            }
         }
 
         mergeErrors(localErrors, serverErrors) {
@@ -3295,8 +3540,8 @@
                 
                 for (const selector of feedbackSelectors) {
                     const feedback = question.element.querySelector(selector);
-                    if (feedback) {
-                        const feedbackText = feedback.innerText.toLowerCase();
+                if (feedback) {
+                    const feedbackText = feedback.innerText.toLowerCase();
                         const feedbackHTML = feedback.innerHTML.toLowerCase();
                         
                         // Ищем упоминания правильности
@@ -3413,8 +3658,8 @@
                 const avgLength = answers.reduce((sum, a) => sum + a.text.length, 0) / answers.length;
                 if (longestAnswer.text.length > avgLength * 1.5) {
                     console.log('[Method 4] Эвристика: выбран самый длинный ответ (детальный)');
-                    return longestAnswer;
-                }
+                return longestAnswer;
+            }
 
                 // Эвристика 4: Ответ с наибольшим количеством слов (более детальный)
                 const mostWordsAnswer = answers.reduce((a, b) => {
@@ -3771,16 +4016,16 @@
                         return; // Не обрабатываем мутации на страницах результатов
                     }
                     
-                    const newQuestions = document.querySelectorAll('.que');
+                const newQuestions = document.querySelectorAll('.que');
                     if (newQuestions.length !== this.questions.size && newQuestions.length > 0) {
                         isProcessing = true;
                         try {
-                            this.parseQuestions();
-                            this.addSolveButtons();
+                    this.parseQuestions();
+                    this.addSolveButtons();
                             this.setupAutoSave();
                         } finally {
                             isProcessing = false;
-                        }
+                }
                     }
                 }, 500);
             });
@@ -3794,7 +4039,7 @@
 
     // Инициализация
     function initializeSolver() {
-        new MoodleQuizSolver();
+            new MoodleQuizSolver();
     }
 
     if (document.readyState === 'loading') {

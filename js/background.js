@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener(() => {
             chrome.storage.sync.set({ 
                 apiSettings: {
                     enabled: true,
-                    apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+                    apiUrl: 'http://130.61.200.70:3000',
                     apiKey: ''
                 }
             });
@@ -21,7 +21,7 @@ chrome.runtime.onInstalled.addListener(() => {
             chrome.storage.sync.set({ 
                 apiSettings: {
                     enabled: true,
-                    apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+                    apiUrl: 'http://130.61.200.70:3000',
                     apiKey: result.apiSettings.apiKey || ''
                 }
             });
@@ -122,7 +122,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Всегда возвращаем фиксированные настройки
         const fixedSettings = {
             enabled: true,
-            apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+            apiUrl: 'http://130.61.200.70:3000',
             apiKey: ''
         };
         // Обновляем настройки в хранилище, чтобы они всегда были правильными
@@ -136,7 +136,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Игнорируем попытки изменить настройки - они всегда фиксированные
         const fixedSettings = {
             enabled: true,
-            apiUrl: 'https://lms-mai-api.iljakir-06.workers.dev',
+            apiUrl: 'http://130.61.200.70:3000',
             apiKey: ''
         };
         chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {
@@ -229,9 +229,16 @@ async function handleServerSync(request, sendResponse) {
     try {
         const { questionHash, answer, isCorrect, syncAction } = request;
         
-        // Используем фиксированный URL сервера (настройки не могут быть изменены)
-        const fixedApiUrl = 'https://lms-mai-api.iljakir-06.workers.dev';
-        const apiUrl = fixedApiUrl.endsWith('/') ? fixedApiUrl.slice(0, -1) : fixedApiUrl;
+        // Получаем URL API из настроек или используем значение по умолчанию
+        const defaultApiUrl = 'http://130.61.200.70:3000';
+        const settings = await new Promise((resolve) => {
+            chrome.storage.local.get(['apiUrl'], (result) => {
+                resolve(result);
+            });
+        });
+        const apiUrl = (settings.apiUrl || defaultApiUrl).endsWith('/') 
+            ? (settings.apiUrl || defaultApiUrl).slice(0, -1) 
+            : (settings.apiUrl || defaultApiUrl);
         const headers = {
             'Content-Type': 'application/json'
         };
@@ -278,21 +285,40 @@ async function handleServerSync(request, sendResponse) {
             });
         } else if (syncAction === 'getAllStatistics') {
             // Получаем всю статистику
+            console.log('[handleServerSync] Запрос getAllStatistics к:', `${apiUrl}/api/stats`);
             response = await fetch(`${apiUrl}/api/stats`, {
                 method: 'GET',
                 headers: headers
             });
+            console.log('[handleServerSync] Ответ getAllStatistics:', response.status, response.statusText);
         }
 
         if (response && response.ok) {
             const data = await response.json();
+            console.log('[handleServerSync] Данные получены:', Object.keys(data).length, 'ключей');
             sendResponse({ success: true, data: data });
         } else {
-            throw new Error(`HTTP error! status: ${response?.status}`);
+            const status = response?.status || 0;
+            const statusText = response?.statusText || 'Unknown error';
+            const errorMessage = `HTTP error! status: ${status} ${statusText}`;
+            
+            console.error('[handleServerSync] Ошибка запроса:', errorMessage);
+            
+            // Передаем код ошибки для обработки в content script
+            sendResponse({ 
+                success: false, 
+                error: errorMessage,
+                statusCode: status,
+                localOnly: true 
+            });
         }
     } catch (error) {
         console.error('Server sync error:', error);
         // При ошибке используем локальное хранилище
-        sendResponse({ success: false, error: error.message, localOnly: true });
+        sendResponse({ 
+            success: false, 
+            error: error.message, 
+            localOnly: true 
+        });
     }
 }

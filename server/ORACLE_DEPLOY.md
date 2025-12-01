@@ -137,15 +137,23 @@ After=network.target
 
 [Service]
 Type=simple
-User=opc
-WorkingDirectory=/home/opc/lms-server/server
+User=ubuntu
+WorkingDirectory=/home/ubuntu/lms-server/server
 Environment="PORT=3000"
+Environment="NODE_ENV=production"
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
+```
+
+**Важно:** Замените `ubuntu` на ваше имя пользователя, если оно отличается. Также проверьте путь к node:
+```bash
+which node  # Может быть /usr/local/bin/node или /usr/bin/node
 ```
 
 Сохраните и запустите:
@@ -164,6 +172,27 @@ curl http://localhost:3000/api/health
 ```
 
 Должен вернуться: `{"status":"ok","timestamp":...}`
+
+### ⚠️ ВАЖНО: Настройка iptables для Ubuntu
+
+**Критически важно!** В Ubuntu образах Oracle Cloud по умолчанию настроен iptables с правилом `REJECT`, которое блокирует весь трафик, кроме явно разрешенного. Даже если Security List настроен правильно, **необходимо добавить правило в iptables** для порта 3000:
+
+```bash
+# Добавьте правило для порта 3000
+sudo iptables -I INPUT 5 -p tcp --dport 3000 -j ACCEPT
+
+# Проверьте правило
+sudo iptables -L -n -v | grep 3000
+
+# Сохраните правило, чтобы оно не пропало после перезагрузки
+sudo apt-get update
+sudo apt-get install -y iptables-persistent
+sudo netfilter-persistent save
+```
+
+**Без этого правила сервер будет недоступен извне**, даже если все остальные настройки правильные!
+
+Подробнее см. `server/FIX_IPTABLES.md` и `server/SOLUTION_SUMMARY.md`
 
 ## Шаг 8: Настройка домена (опционально)
 

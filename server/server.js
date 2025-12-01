@@ -108,9 +108,25 @@ app.get('/api/stats/:questionHash', (req, res) => {
   }
 });
 
-// Get all statistics (simplified - returns empty for compatibility)
+// Get all statistics
 app.get('/api/stats', (req, res) => {
-  res.json({ statistics: {} });
+  try {
+    const rows = db.prepare('SELECT * FROM statistics').all();
+    
+    const statistics = {};
+    for (const row of rows) {
+      statistics[row.question_hash] = {
+        totalAttempts: row.total_attempts || 0,
+        correctAttempts: row.correct_attempts || 0,
+        answers: safeJsonParse(row.answers_json, {}),
+      };
+    }
+    
+    res.json({ statistics });
+  } catch (error) {
+    console.error('Error getting all statistics:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Submit answer statistics

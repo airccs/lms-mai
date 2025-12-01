@@ -241,31 +241,11 @@ async function handleServerSync(request, sendResponse) {
     try {
         const { questionHash, answer, isCorrect, syncAction } = request;
         
-        // Получаем URL API из настроек или используем значение по умолчанию
-        const defaultApiUrl = 'http://130.61.200.70:8080';
-        const settings = await new Promise((resolve) => {
-            chrome.storage.local.get(['apiUrl'], (result) => {
-                resolve(result);
-            });
-        });
-        // Принудительно используем правильный URL (игнорируем старые настройки)
-        let apiUrl = defaultApiUrl;
-        // Если в хранилище есть URL и он правильный, используем его
-        if (settings.apiUrl && settings.apiUrl.includes('130.61.200.70')) {
-            apiUrl = settings.apiUrl.endsWith('/') 
-                ? settings.apiUrl.slice(0, -1) 
-                : settings.apiUrl;
-            // Если старый порт 3000, обновляем на 8080
-            if (apiUrl.includes(':3000')) {
-                apiUrl = apiUrl.replace(':3000', ':8080');
-                chrome.storage.local.set({ apiUrl: apiUrl });
-            }
-        }
-        // Убеждаемся, что используется порт 8080
-        if (!apiUrl.includes(':8080') && apiUrl.includes('130.61.200.70')) {
-            apiUrl = 'http://130.61.200.70:8080';
-            chrome.storage.local.set({ apiUrl: apiUrl });
-        }
+        // Всегда используем правильный URL (игнорируем chrome.storage.local для надежности)
+        const apiUrl = 'http://130.61.200.70:8080';
+        
+        // Обновляем хранилище для будущих использований
+        chrome.storage.local.set({ apiUrl: apiUrl });
         const headers = {
             'Content-Type': 'application/json'
         };

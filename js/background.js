@@ -27,6 +27,18 @@ chrome.runtime.onInstalled.addListener(() => {
             });
         }
     });
+    
+    // Принудительно обновляем apiUrl в local storage
+    chrome.storage.local.set({ 
+        apiUrl: 'http://130.61.200.70:8080'
+    });
+});
+
+// Также обновляем при каждом запуске расширения
+chrome.runtime.onStartup.addListener(() => {
+    chrome.storage.local.set({ 
+        apiUrl: 'http://130.61.200.70:8080'
+    });
 });
 
 // Обработка сообщений от content script
@@ -236,9 +248,24 @@ async function handleServerSync(request, sendResponse) {
                 resolve(result);
             });
         });
-        const apiUrl = (settings.apiUrl || defaultApiUrl).endsWith('/') 
-            ? (settings.apiUrl || defaultApiUrl).slice(0, -1) 
-            : (settings.apiUrl || defaultApiUrl);
+        // Принудительно используем правильный URL (игнорируем старые настройки)
+        let apiUrl = defaultApiUrl;
+        // Если в хранилище есть URL и он правильный, используем его
+        if (settings.apiUrl && settings.apiUrl.includes('130.61.200.70')) {
+            apiUrl = settings.apiUrl.endsWith('/') 
+                ? settings.apiUrl.slice(0, -1) 
+                : settings.apiUrl;
+            // Если старый порт 3000, обновляем на 8080
+            if (apiUrl.includes(':3000')) {
+                apiUrl = apiUrl.replace(':3000', ':8080');
+                chrome.storage.local.set({ apiUrl: apiUrl });
+            }
+        }
+        // Убеждаемся, что используется порт 8080
+        if (!apiUrl.includes(':8080') && apiUrl.includes('130.61.200.70')) {
+            apiUrl = 'http://130.61.200.70:8080';
+            chrome.storage.local.set({ apiUrl: apiUrl });
+        }
         const headers = {
             'Content-Type': 'application/json'
         };

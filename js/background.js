@@ -243,10 +243,31 @@ async function handleServerSync(request, sendResponse) {
             'Content-Type': 'application/json'
         };
 
+        // Функция для выполнения fetch с таймаутом
+        const fetchWithTimeout = async (url, options, timeout = 8000) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    throw new Error(`Timeout: запрос к ${url} превысил ${timeout}ms`);
+                }
+                throw fetchError;
+            }
+        };
+
         let response;
         if (syncAction === 'submitAnswer') {
             // Отправляем статистику ответа
-            response = await fetch(`${apiUrl}/api/submit`, {
+            response = await fetchWithTimeout(`${apiUrl}/api/submit`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({
@@ -259,7 +280,7 @@ async function handleServerSync(request, sendResponse) {
         } else if (syncAction === 'saveAnswer') {
             // Отправляем сохраненный ответ на сервер
             const { questionText, questionImage } = request;
-            response = await fetch(`${apiUrl}/api/save`, {
+            response = await fetchWithTimeout(`${apiUrl}/api/save`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({
@@ -273,24 +294,39 @@ async function handleServerSync(request, sendResponse) {
             });
         } else if (syncAction === 'getSavedAnswers') {
             // Получаем сохраненные ответы других пользователей
-            response = await fetch(`${apiUrl}/api/answers/${questionHash}`, {
+            response = await fetchWithTimeout(`${apiUrl}/api/answers/${questionHash}`, {
                 method: 'GET',
                 headers: headers
             });
         } else if (syncAction === 'getStatistics') {
             // Получаем статистику с сервера
-            response = await fetch(`${apiUrl}/api/stats/${questionHash}`, {
+            response = await fetchWithTimeout(`${apiUrl}/api/stats/${questionHash}`, {
                 method: 'GET',
                 headers: headers
             });
         } else if (syncAction === 'getAllStatistics') {
             // Получаем всю статистику
             console.log('[handleServerSync] Запрос getAllStatistics к:', `${apiUrl}/api/stats`);
-            response = await fetch(`${apiUrl}/api/stats`, {
-                method: 'GET',
-                headers: headers
-            });
-            console.log('[handleServerSync] Ответ getAllStatistics:', response.status, response.statusText);
+            
+            // Добавляем таймаут для fetch
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 секунд таймаут
+            
+            try {
+                response = await fetch(`${apiUrl}/api/stats`, {
+                    method: 'GET',
+                    headers: headers,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                console.log('[handleServerSync] Ответ getAllStatistics:', response.status, response.statusText);
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    throw new Error('Timeout: запрос к серверу превысил 8 секунд');
+                }
+                throw fetchError;
+            }
         }
 
         if (response && response.ok) {
@@ -313,11 +349,11 @@ async function handleServerSync(request, sendResponse) {
             });
         }
     } catch (error) {
-        console.error('Server sync error:', error);
+        console.error('[handleServerSync] Server sync error:', error);
         // При ошибке используем локальное хранилище
         sendResponse({ 
             success: false, 
-            error: error.message, 
+            error: error.message || 'Unknown error', 
             localOnly: true 
         });
     }

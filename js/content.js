@@ -1969,15 +1969,24 @@
                     const localStats = this.statistics.get(key);
                     if (localStats) {
                         // Объединяем: берем максимум из обоих источников
+                        const localErrors = Array.isArray(localStats.errors) ? localStats.errors : [];
+                        const serverErrors = Array.isArray(value.errors) ? value.errors : [];
                         const merged = {
                             totalAttempts: Math.max(localStats.totalAttempts || 0, value.totalAttempts || 0),
                             correctAttempts: Math.max(localStats.correctAttempts || 0, value.correctAttempts || 0),
-                            answers: { ...localStats.answers, ...value.answers },
-                            errors: [...(localStats.errors || []), ...(value.errors || [])]
+                            answers: { ...(localStats.answers || {}), ...(value.answers || {}) },
+                            errors: [...localErrors, ...serverErrors]
                         };
                         this.statistics.set(key, merged);
                     } else {
-                        this.statistics.set(key, value);
+                        // Убеждаемся, что все обязательные поля присутствуют
+                        const statsWithDefaults = {
+                            totalAttempts: value.totalAttempts || 0,
+                            correctAttempts: value.correctAttempts || 0,
+                            answers: value.answers || {},
+                            errors: Array.isArray(value.errors) ? value.errors : []
+                        };
+                        this.statistics.set(key, statsWithDefaults);
                     }
                     loadedCount++;
                 }
@@ -2064,12 +2073,31 @@
 
         async updateStatistics(questionHash, answer, isCorrect) {
             try {
-                const stats = this.statistics.get(questionHash) || {
-                    totalAttempts: 0,
-                    correctAttempts: 0,
-                    answers: {},
-                    errors: []
-                };
+                let stats = this.statistics.get(questionHash);
+                
+                // Если статистики нет или она некорректна, создаем новую
+                if (!stats || typeof stats !== 'object') {
+                    stats = {
+                        totalAttempts: 0,
+                        correctAttempts: 0,
+                        answers: {},
+                        errors: []
+                    };
+                }
+
+                // Убеждаемся, что все обязательные поля присутствуют
+                if (!Array.isArray(stats.errors)) {
+                    stats.errors = [];
+                }
+                if (!stats.answers || typeof stats.answers !== 'object') {
+                    stats.answers = {};
+                }
+                if (typeof stats.totalAttempts !== 'number') {
+                    stats.totalAttempts = 0;
+                }
+                if (typeof stats.correctAttempts !== 'number') {
+                    stats.correctAttempts = 0;
+                }
 
                 stats.totalAttempts++;
                 if (isCorrect) {

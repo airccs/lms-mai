@@ -23,6 +23,12 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит для изображений
 
+// Логирование всех запросов для диагностики
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
+  next();
+});
+
 // Initialize database
 const dbPath = join(__dirname, 'quiz_data.db');
 const db = new Database(dbPath);

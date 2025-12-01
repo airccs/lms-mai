@@ -1927,7 +1927,7 @@
                 console.log(`Loaded ${loadedCount} questions from local storage`);
 
                 // Всегда загружаем статистику с сервера (синхронизация всегда включена)
-                const settings = { enabled: true, apiUrl: 'http://130.61.200.70:3000', apiKey: '' };
+                const settings = { enabled: true, apiUrl: 'http://130.61.200.70', apiKey: '' };
                 await this.loadStatisticsFromServer(settings);
             } catch (e) {
                 console.error('Error loading statistics:', e);

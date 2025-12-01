@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener(() => {
             chrome.storage.sync.set({ 
                 apiSettings: {
                     enabled: true,
-                    apiUrl: 'http://130.61.200.70:3000',
+                    apiUrl: 'http://130.61.200.70',
                     apiKey: ''
                 }
             });
@@ -21,7 +21,7 @@ chrome.runtime.onInstalled.addListener(() => {
             chrome.storage.sync.set({ 
                 apiSettings: {
                     enabled: true,
-                    apiUrl: 'http://130.61.200.70:3000',
+                    apiUrl: 'http://130.61.200.70',
                     apiKey: result.apiSettings.apiKey || ''
                 }
             });
@@ -230,7 +230,7 @@ async function handleServerSync(request, sendResponse) {
         const { questionHash, answer, isCorrect, syncAction } = request;
         
         // Получаем URL API из настроек или используем значение по умолчанию
-        const defaultApiUrl = 'http://130.61.200.70:3000';
+        const defaultApiUrl = 'http://130.61.200.70';
         const settings = await new Promise((resolve) => {
             chrome.storage.local.get(['apiUrl'], (result) => {
                 resolve(result);

@@ -579,33 +579,45 @@
             // Использует ту же логику, что и auto-scan.js, но через fetch
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await this.safeStorageGet(['autoScanInProgress', 'scannedUrls']) || {};
+            const scanState = await this.safeStorageGet(['autoScanInProgress', 'scannedUrls', 'scannedUrlsMeta']) || {};
+            const scannedUrls = scanState.scannedUrls || [];
             
             // Если сканирование уже выполняется, проверяем, можем ли мы продолжить
             if (scanState.autoScanInProgress) {
-                const scannedUrls = scanState.scannedUrls || [];
                 if (scannedUrls.length > 0) {
                     console.log(`[Force Auto Scan] Сканирование уже выполняется в фоне (отсканировано ${scannedUrls.length} URL), продолжаю с места остановки...`);
                     // Не возвращаемся, продолжаем сканирование с места остановки
                 } else {
-                    console.log('[Force Auto Scan] Сканирование уже выполняется в фоне, но нет прогресса, жду...');
+                    console.log('[Force Auto Scan] Сканирование уже выполняется в фоне, но нет прогресса, продолжаю...');
                     // Если нет прогресса, возможно сканирование только началось, продолжаем
                 }
             }
             
             if (this.isForceScanning && scanState.autoScanInProgress) {
-                console.log('[Force Auto Scan] Сканирование уже выполняется локально');
-                return;
+                console.log('[Force Auto Scan] Сканирование уже выполняется локально, продолжаю...');
+                // Не возвращаемся, продолжаем сканирование
             }
 
             // Устанавливаем флаг сканирования в storage для координации между страницами
             // Также сохраняем heartbeat для проверки активности и URL страницы
+            // Если сканирование уже в процессе, обновляем только heartbeat и URL
+            const currentScanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime']) || {};
             await this.safeStorageSet({ 
                 autoScanInProgress: true, 
-                autoScanStartTime: scanState.autoScanStartTime || Date.now(),
+                autoScanStartTime: currentScanState.autoScanStartTime || scanState.autoScanStartTime || Date.now(),
                 autoScanHeartbeat: Date.now(), // Время последнего обновления
                 autoScanUrl: window.location.href // URL страницы, где запущено сканирование
             });
+            
+            // Сбрасываем флаг dataCleared после начала сканирования
+            const dataState = await this.safeStorageGet(['dataCleared']) || {};
+            if (dataState.dataCleared) {
+                console.log('[Force Auto Scan] Сбрасываю флаг dataCleared после начала сканирования');
+                await this.safeStorageSet({ 
+                    dataCleared: false,
+                    dataClearedTimestamp: null
+                });
+            }
             
             this.isForceScanning = true;
             console.log('[Force Auto Scan] Флаги установлены, начинаю сканирование...');
@@ -1592,17 +1604,15 @@
                 const heartbeatElapsed = Date.now() - lastHeartbeat;
                 const scanUrl = scanState.autoScanUrl;
                 
-                // Если сканирование было запущено на другой странице, разрешаем запуск нового
+                // Если сканирование было запущено на другой странице, продолжаем его на текущей странице
                 if (scanUrl && scanUrl !== currentUrl) {
-                    console.log(`[Auto Force Scan] Сканирование было запущено на другой странице (${scanUrl}), разрешаю запуск нового на текущей странице`);
+                    console.log(`[Auto Force Scan] Сканирование было запущено на другой странице (${scanUrl}), продолжаю на текущей странице`);
+                    // Обновляем URL сканирования на текущую страницу, но не сбрасываем флаги
                     await this.safeStorageSet({ 
-                        autoScanInProgress: false, 
-                        autoScanStartTime: null,
-                        autoScanHeartbeat: null,
-                        autoScanUrl: null,
-                        lastScanTime: null // Сбрасываем lastScanTime, чтобы разрешить немедленный запуск
+                        autoScanUrl: currentUrl,
+                        autoScanHeartbeat: Date.now() // Обновляем heartbeat
                     });
-                    // Продолжаем выполнение, чтобы запустить новое сканирование
+                    // Продолжаем выполнение, чтобы продолжить сканирование
                 } else if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
                     // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
                     console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), сбрасываю...`);
@@ -1635,18 +1645,33 @@
             console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
 
             // Проверяем, было ли уже выполнено сканирование (проверяем scannedUrls)
-            const scanProgress = await this.safeStorageGet(['scannedUrls', 'lastScanTime', 'dataCleared']) || {};
+            const scanProgress = await this.safeStorageGet(['scannedUrls', 'lastScanTime', 'dataCleared', 'dataClearedTimestamp']) || {};
             const scannedUrls = scanProgress.scannedUrls || [];
+            const dataClearedTimestamp = scanProgress.dataClearedTimestamp || 0;
+            const now = Date.now();
             
-            // Если данные были очищены, очищаем scannedUrls и разрешаем новое сканирование
-            if (scanProgress.dataCleared) {
-                console.log('[Auto Force Scan] Данные были очищены, очищаю scannedUrls для нового сканирования');
-                await this.safeStorageSet({ scannedUrls: [] });
+            // Если данные были очищены более 5 минут назад, сбрасываем флаг dataCleared
+            if (scanProgress.dataCleared && dataClearedTimestamp > 0) {
+                const timeSinceClear = now - dataClearedTimestamp;
+                if (timeSinceClear > 5 * 60 * 1000) { // 5 минут
+                    console.log('[Auto Force Scan] Флаг dataCleared был установлен более 5 минут назад, сбрасываю его');
+                    await this.safeStorageSet({ 
+                        dataCleared: false,
+                        dataClearedTimestamp: null
+                    });
+                } else {
+                    // Если данные были очищены недавно, очищаем scannedUrls только если они пусты
+                    if (scannedUrls.length === 0) {
+                        console.log('[Auto Force Scan] Данные были очищены недавно, сканирование начнется заново');
+                    } else {
+                        console.log(`[Auto Force Scan] Данные были очищены недавно, но уже есть ${scannedUrls.length} отсканированных URL, продолжаю сканирование`);
+                    }
+                }
             }
             
-            // Если уже есть отсканированные URL, значит сканирование уже выполнялось
-            // Запускаем только если scannedUrls пуст или был сброс
-            if (scannedUrls.length > 0 && !scanProgress.dataCleared) {
+            // Если уже есть отсканированные URL и сканирование не в процессе, значит сканирование уже завершено
+            // Запускаем только если scannedUrls пуст или сканирование в процессе
+            if (scannedUrls.length > 0 && !scanState.autoScanInProgress && !scanProgress.dataCleared) {
                 console.log(`[Auto Force Scan] Сканирование уже было выполнено (отсканировано ${scannedUrls.length} URL), не запускаю повторно`);
                 console.log('[Auto Force Scan] Для нового сканирования очистите "Сохраненные данные"');
                 return;
@@ -1656,9 +1681,9 @@
             let lastScanTime = scanProgress.lastScanTime || 0;
             const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
             
-            // Если данные были очищены, сбрасываем lastScanTime, чтобы разрешить немедленный запуск
-            if (scanProgress.dataCleared) {
-                console.log('[Auto Force Scan] Данные были очищены, сбрасываю lastScanTime для немедленного запуска');
+            // Если данные были очищены недавно, сбрасываем lastScanTime, чтобы разрешить немедленный запуск
+            if (scanProgress.dataCleared && dataClearedTimestamp > 0 && (now - dataClearedTimestamp) < 5 * 60 * 1000) {
+                console.log('[Auto Force Scan] Данные были очищены недавно, сбрасываю lastScanTime для немедленного запуска');
                 lastScanTime = 0;
             }
 

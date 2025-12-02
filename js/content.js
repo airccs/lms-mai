@@ -3031,6 +3031,9 @@
                 }
 
                 console.log(`Loaded ${loadedCount} questions from server`);
+                
+                // Обновляем isCorrect для ответов, у которых он null/undefined, используя статистику
+                await this.updateIsCorrectFromStatistics();
             } catch (e) {
                 console.error('Error loading statistics from server:', e);
             }

@@ -1612,7 +1612,19 @@
                         autoScanUrl: currentUrl,
                         autoScanHeartbeat: Date.now() // Обновляем heartbeat
                     });
-                    // Продолжаем выполнение, чтобы продолжить сканирование
+                    // Продолжаем сканирование на текущей странице, вызывая forceAutoScan напрямую
+                    // Не ждем таймера, так как сканирование уже в процессе
+                    setTimeout(async () => {
+                        if (!this.isForceScanning) {
+                            console.log('[Auto Force Scan] Продолжаю сканирование на текущей странице...');
+                            try {
+                                await this.forceAutoScan();
+                            } catch (error) {
+                                console.error('[Auto Force Scan] Ошибка при продолжении сканирования:', error);
+                            }
+                        }
+                    }, 1000); // Небольшая задержка для инициализации страницы
+                    return; // Выходим, чтобы не запускать startAutoScan
                 } else if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
                     // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
                     console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), сбрасываю...`);
@@ -1693,9 +1705,27 @@
                 console.log(`[Auto Force Scan] Запрос на запуск сканирования (причина: ${reason})`);
                 
                 // Проверяем состояние сканирования в storage
-                const currentState = await this.safeStorageGet(['autoScanInProgress', 'lastScanTime']) || {};
+                const currentState = await this.safeStorageGet(['autoScanInProgress', 'lastScanTime', 'autoScanUrl']) || {};
+                const currentUrl = window.location.href;
+                
+                // Если сканирование уже выполняется, но на другой странице, продолжаем его
                 if (currentState.autoScanInProgress) {
-                    console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, пропускаю...');
+                    const scanUrl = currentState.autoScanUrl;
+                    if (scanUrl && scanUrl !== currentUrl) {
+                        console.log(`[Auto Force Scan] Сканирование выполняется на другой странице (${scanUrl}), продолжаю на текущей...`);
+                        // Продолжаем сканирование на текущей странице
+                        setTimeout(async () => {
+                            if (!this.isForceScanning) {
+                                try {
+                                    await this.forceAutoScan();
+                                } catch (error) {
+                                    console.error('[Auto Force Scan] Ошибка при продолжении сканирования:', error);
+                                }
+                            }
+                        }, 1000);
+                    } else {
+                        console.log('[Auto Force Scan] Сканирование уже выполняется в фоне, пропускаю...');
+                    }
                     return;
                 }
                 

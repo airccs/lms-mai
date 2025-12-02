@@ -196,7 +196,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         timestamp: value.timestamp,
                         isCorrect: value.isCorrect,
                         questionText: value.questionText || 'Текст вопроса не сохранен',
-                        questionImage: value.questionImage || null
+                        questionImage: value.questionImage || null,
+                        courseName: value.courseName || null,
+                        quizName: value.quizName || null
                     });
                 } else if (key.startsWith('stats_')) {
                     const hash = key.replace('stats_', '');

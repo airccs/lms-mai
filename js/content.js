@@ -2183,6 +2183,66 @@
             }
         }
 
+        // Извлечение названия курса и теста из текущей страницы
+        getCourseAndQuizNames() {
+            try {
+                const url = window.location.href;
+                let courseName = null;
+                let quizName = null;
+                
+                // Пытаемся извлечь название курса из breadcrumb или заголовка
+                const breadcrumb = document.querySelector('.breadcrumb, .breadcrumb-item, nav[aria-label="breadcrumb"]');
+                if (breadcrumb) {
+                    const breadcrumbLinks = breadcrumb.querySelectorAll('a');
+                    breadcrumbLinks.forEach(link => {
+                        const href = link.getAttribute('href') || '';
+                        if (href.includes('/course/view.php')) {
+                            courseName = link.textContent.trim();
+                        }
+                        if (href.includes('/mod/quiz/view.php')) {
+                            quizName = link.textContent.trim();
+                        }
+                    });
+                }
+                
+                // Если не нашли в breadcrumb, ищем в заголовках
+                if (!courseName) {
+                    const courseHeader = document.querySelector('h1.coursename, .page-header-headings h1, .course-header h1');
+                    if (courseHeader) {
+                        courseName = courseHeader.textContent.trim();
+                    }
+                }
+                
+                // Ищем название теста в заголовке
+                if (!quizName) {
+                    const quizHeader = document.querySelector('h1.quizname, .page-header-headings h1, .quiz-header h1, h2.quizname');
+                    if (quizHeader) {
+                        quizName = quizHeader.textContent.trim();
+                    }
+                }
+                
+                // Если все еще не нашли, пытаемся извлечь из URL
+                if (!courseName && url.includes('/course/view.php')) {
+                    const courseMatch = url.match(/[?&]id=(\d+)/);
+                    if (courseMatch) {
+                        courseName = `Курс #${courseMatch[1]}`;
+                    }
+                }
+                
+                if (!quizName && url.includes('/mod/quiz/')) {
+                    const quizMatch = url.match(/[?&]id=(\d+)/);
+                    if (quizMatch) {
+                        quizName = `Тест #${quizMatch[1]}`;
+                    }
+                }
+                
+                return { courseName, quizName };
+            } catch (e) {
+                console.warn('[getCourseAndQuizNames] Ошибка при извлечении названий:', e);
+                return { courseName: null, quizName: null };
+            }
+        }
+
         async saveAnswer(questionHash, answer, isCorrect = null, questionText = null, questionImage = null) {
             try {
                 // Проверяем доступность chrome.storage
@@ -2217,12 +2277,17 @@
                 }
 
                 if (shouldUpdate) {
+                    // Извлекаем названия курса и теста, если их еще нет
+                    const { courseName, quizName } = this.getCourseAndQuizNames();
+                    
                     const answerData = {
                         answer: answer,
                         timestamp: existingData?.timestamp || Date.now(), // Сохраняем оригинальную дату
                         isCorrect: isCorrect !== null ? isCorrect : (existingData?.isCorrect || null),
                         questionText: questionText || existingData?.questionText || null,
-                        questionImage: questionImage || existingData?.questionImage || null
+                        questionImage: questionImage || existingData?.questionImage || null,
+                        courseName: courseName || existingData?.courseName || null,
+                        quizName: quizName || existingData?.quizName || null
                     };
                     
                     console.log(`[Save] Сохраняем данные: questionImage=${questionImage ? 'есть (' + questionImage.length + ' байт)' : 'нет'}`);

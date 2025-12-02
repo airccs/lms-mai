@@ -80,6 +80,8 @@ function displayData(data) {
                         <div class="data-item-meta">
                             <span>📅 ${date}</span>
                             <span>🔑 Hash: ${item.hash}</span>
+                            ${item.courseName ? `<span>📚 Курс: ${escapeHtml(item.courseName)}</span>` : ''}
+                            ${item.quizName ? `<span>📝 Тест: ${escapeHtml(item.quizName)}</span>` : ''}
                             ${accuracy !== null ? `<span>📊 Точность: ${accuracy}%</span>` : ''}
                             ${stats.totalAttempts ? `<span>👥 Попыток: ${stats.totalAttempts}</span>` : ''}
                         </div>

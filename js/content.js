@@ -2837,16 +2837,16 @@
                         
                         mergedCount++;
                     }
-                    // Если это другой ответ - добавляем (для разных пользователей)
-                    // ВАЖНО: Добавляем ответы других пользователей, даже если локальные timestamps новее
+                    // Если это другой ответ - ВСЕГДА добавляем (для разных пользователей)
+                    // ВАЖНО: Добавляем ответы других пользователей, чтобы видеть все варианты
                     else if (!answersEqual(serverAnswer.answer, localAnswer.answer)) {
                         // Добавляем серверный ответ, если:
-                        // 1. У серверного есть isCorrect, а у локального нет
+                        // 1. У серверного есть isCorrect (любой - правильный или неправильный)
                         // 2. Или серверный ответ новее
-                        // 3. Или просто добавляем для разнообразия ответов
-                        const shouldAdd = serverAnswer.isCorrect !== null && localAnswer.isCorrect === null ||
-                                        serverTimestamp > localTimestamp ||
-                                        serverAnswer.isCorrect === true; // Всегда добавляем правильные ответы
+                        // 3. Или локальный без информации о правильности
+                        const shouldAdd = serverAnswer.isCorrect !== null || // Есть информация о правильности
+                                        serverTimestamp > localTimestamp || // Серверный новее
+                                        localAnswer.isCorrect === null; // Локальный без информации о правильности
                         
                         if (shouldAdd) {
                             await this.safeStorageSet({
@@ -2872,9 +2872,34 @@
                             skippedCount++;
                         }
                     }
-                    // Если это тот же ответ, но локальный новее - оставляем локальный
+                    // Если это тот же ответ - обновляем только если серверный новее ИЛИ имеет isCorrect, а локальный нет
                     else {
-                        skippedCount++;
+                        const shouldUpdate = serverTimestamp > localTimestamp || // Серверный новее
+                                          (serverAnswer.isCorrect !== null && localAnswer.isCorrect === null); // У серверного есть isCorrect
+                        
+                        if (shouldUpdate) {
+                            await this.safeStorageSet({
+                                [`answer_${questionHash}`]: {
+                                    answer: serverAnswer.answer,
+                                    timestamp: serverTimestamp,
+                                    isCorrect: serverAnswer.isCorrect !== null ? serverAnswer.isCorrect : localAnswer.isCorrect,
+                                    questionText: serverAnswer.questionText || localAnswer.questionText || null,
+                                    questionImage: serverAnswer.questionImage || localAnswer.questionImage || null
+                                }
+                            });
+                            
+                            this.savedAnswers.set(questionHash, {
+                                answer: serverAnswer.answer,
+                                timestamp: serverTimestamp,
+                                isCorrect: serverAnswer.isCorrect !== null ? serverAnswer.isCorrect : localAnswer.isCorrect,
+                                questionText: serverAnswer.questionText || localAnswer.questionText || null,
+                                questionImage: serverAnswer.questionImage || localAnswer.questionImage || null
+                            });
+                            
+                            mergedCount++;
+                        } else {
+                            skippedCount++;
+                        }
                     }
                 }
                 

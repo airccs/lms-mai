@@ -368,6 +368,50 @@ app.get('/api/answers/:questionHash', (req, res) => {
   }
 });
 
+// Clear database endpoint (⚠️ USE WITH CAUTION)
+app.post('/api/clear', (req, res) => {
+  try {
+    console.log('[POST /api/clear] Очистка базы данных...');
+    
+    // Очищаем таблицы
+    db.exec('DELETE FROM saved_answers');
+    db.exec('DELETE FROM statistics');
+    
+    // Оптимизируем базу данных
+    db.exec('VACUUM');
+    
+    console.log('[POST /api/clear] База данных очищена');
+    res.json({ 
+      success: true, 
+      message: 'Database cleared successfully',
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    console.error('[POST /api/clear] Ошибка при очистке базы данных:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
+
+// Get database stats
+app.get('/api/db/stats', (req, res) => {
+  try {
+    const savedAnswersCount = db.prepare('SELECT COUNT(*) as count FROM saved_answers').get().count;
+    const statisticsCount = db.prepare('SELECT COUNT(*) as count FROM statistics').get().count;
+    
+    res.json({
+      savedAnswers: savedAnswersCount,
+      statistics: statisticsCount,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    console.error('[GET /api/db/stats] Ошибка:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

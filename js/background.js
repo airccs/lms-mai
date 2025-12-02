@@ -324,24 +324,52 @@ async function handleServerSync(request, sendResponse) {
             // Отправляем сохраненный ответ на сервер
             const { questionText, questionImage } = request;
             
+            // Нормализуем answer - убеждаемся, что это валидный объект/массив/строка
+            let normalizedAnswer = answer;
+            if (answer === null || answer === undefined) {
+                normalizedAnswer = null;
+            } else if (typeof answer === 'string') {
+                // Если это строка, пытаемся распарсить как JSON, если не получается - оставляем как есть
+                try {
+                    normalizedAnswer = JSON.parse(answer);
+                } catch (e) {
+                    normalizedAnswer = answer;
+                }
+            }
+            
             // Логируем размер данных перед отправкой
             const imageSize = questionImage ? questionImage.length : 0;
             const textSize = questionText ? questionText.length : 0;
-            console.log(`[handleServerSync] Отправка saveAnswer: questionHash=${questionHash}, imageSize=${imageSize}, textSize=${textSize}`);
+            const answerType = Array.isArray(normalizedAnswer) ? 'array' : typeof normalizedAnswer;
+            console.log(`[handleServerSync] Отправка saveAnswer: questionHash=${questionHash}, answerType=${answerType}, imageSize=${imageSize}, textSize=${textSize}`);
             
             const requestBody = {
                 questionHash,
-                answer,
+                answer: normalizedAnswer,
                 isCorrect,
                 questionText: questionText || null,
                 questionImage: questionImage || null,
                 timestamp: Date.now()
             };
             
+            // Проверяем, что тело запроса можно сериализовать
+            let requestBodyString;
+            try {
+                requestBodyString = JSON.stringify(requestBody);
+            } catch (e) {
+                console.error('[handleServerSync] Ошибка сериализации requestBody:', e);
+                sendResponse({ 
+                    success: false, 
+                    error: 'Failed to serialize request body',
+                    localOnly: true 
+                });
+                return;
+            }
+            
             response = await fetchWithTimeout(`${apiUrl}/api/save`, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify(requestBody)
+                body: requestBodyString
             });
         } else if (syncAction === 'getSavedAnswers') {
             // Получаем сохраненные ответы других пользователей

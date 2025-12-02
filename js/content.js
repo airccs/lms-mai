@@ -468,8 +468,9 @@
             // Нормализуем URL (убираем параметры, которые не влияют на содержимое)
             const normalizedUrl = this.normalizeUrl(url);
             const scanState = await this.safeStorageGet(['scannedUrls', 'scannedUrlsMeta']) || {};
-            const scannedUrls = scanState.scannedUrls || [];
-            const scannedUrlsMeta = scanState.scannedUrlsMeta || {};
+            // Создаем копии массивов/объектов, чтобы не изменять константы
+            let scannedUrls = Array.isArray(scanState.scannedUrls) ? [...scanState.scannedUrls] : [];
+            let scannedUrlsMeta = scanState.scannedUrlsMeta ? { ...scanState.scannedUrlsMeta } : {};
             
             // Добавляем URL в список отсканированных, если его там еще нет
             if (!scannedUrls.includes(normalizedUrl)) {
@@ -494,7 +495,8 @@
             // Отмечаем URL как неудачно отсканированный (для возможного повторного сканирования)
             const normalizedUrl = this.normalizeUrl(url);
             const scanState = await this.safeStorageGet(['scannedUrlsMeta']) || {};
-            const scannedUrlsMeta = scanState.scannedUrlsMeta || {};
+            // Создаем копию объекта, чтобы не изменять константу
+            let scannedUrlsMeta = scanState.scannedUrlsMeta ? { ...scanState.scannedUrlsMeta } : {};
             
             scannedUrlsMeta[normalizedUrl] = {
                 questionsCount: 0,

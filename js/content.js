@@ -1198,10 +1198,15 @@
                 const response = await fetch(url, {
                     credentials: 'include', // Включаем cookies для авторизации
                     headers: {
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'ru-RU,ru;q=0.9',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
                         'Referer': window.location.href,
-                        'User-Agent': navigator.userAgent
+                        'User-Agent': navigator.userAgent,
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'same-origin',
+                        'Cache-Control': 'max-age=0'
                     },
                     mode: 'cors',
                     redirect: 'follow'
@@ -1211,6 +1216,8 @@
                     // Если 403 - это нормально, возможно нет доступа к этой странице
                     if (response.status === 403) {
                         console.warn(`[scanReviewPageWithFetch] Доступ запрещен (403) для ${url}, пропускаю...`);
+                        // Добавляем задержку перед следующим запросом, чтобы не перегружать сервер
+                        await new Promise(resolve => setTimeout(resolve, 2000));
                         return { questions: 0, saved: 0 };
                     }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);

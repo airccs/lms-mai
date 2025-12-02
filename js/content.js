@@ -2770,6 +2770,19 @@
                     const serverTimestamp = serverAnswer.timestamp || 0;
                     const localTimestamp = localAnswer?.timestamp || 0;
                     
+                    // Функция для сравнения ответов (по value и text)
+                    const answersEqual = (answer1, answer2) => {
+                        if (!answer1 || !answer2) return false;
+                        
+                        const a1 = typeof answer1 === 'string' ? JSON.parse(answer1) : answer1;
+                        const a2 = typeof answer2 === 'string' ? JSON.parse(answer2) : answer2;
+                        
+                        if (a1.value && a2.value && a1.value === a2.value) return true;
+                        if (a1.text && a2.text && a1.text.trim() === a2.text.trim()) return true;
+                        
+                        return false;
+                    };
+                    
                     // Если локального ответа нет - добавляем серверный
                     if (!localAnswer) {
                         // Сохраняем в локальное хранилище
@@ -2795,8 +2808,8 @@
                         mergedCount++;
                         newCount++;
                     } 
-                    // Если серверный ответ новее - обновляем локальный
-                    else if (serverTimestamp > localTimestamp) {
+                    // Если это тот же ответ, но серверный новее - обновляем
+                    else if (answersEqual(serverAnswer.answer, localAnswer.answer) && serverTimestamp > localTimestamp) {
                         // Сохраняем в локальное хранилище
                         await this.safeStorageSet({
                             [`answer_${questionHash}`]: {
@@ -2818,7 +2831,35 @@
                         });
                         
                         mergedCount++;
-                    } 
+                    }
+                    // Если это другой ответ - добавляем как дополнительный (для разных пользователей)
+                    else if (!answersEqual(serverAnswer.answer, localAnswer.answer)) {
+                        // Сохраняем серверный ответ с другим ключом (добавляем суффикс)
+                        // Но для простоты просто обновляем, если серверный ответ имеет isCorrect, а локальный нет
+                        if (serverAnswer.isCorrect !== null && localAnswer.isCorrect === null) {
+                            await this.safeStorageSet({
+                                [`answer_${questionHash}`]: {
+                                    answer: serverAnswer.answer,
+                                    timestamp: serverTimestamp,
+                                    isCorrect: serverAnswer.isCorrect,
+                                    questionText: serverAnswer.questionText || null,
+                                    questionImage: serverAnswer.questionImage || null
+                                }
+                            });
+                            
+                            this.savedAnswers.set(questionHash, {
+                                answer: serverAnswer.answer,
+                                timestamp: serverTimestamp,
+                                isCorrect: serverAnswer.isCorrect,
+                                questionText: serverAnswer.questionText || null,
+                                questionImage: serverAnswer.questionImage || null
+                            });
+                            
+                            mergedCount++;
+                        } else {
+                            skippedCount++;
+                        }
+                    }
                     // Если локальный ответ новее или равен - пропускаем
                     else {
                         skippedCount++;

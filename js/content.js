@@ -1614,7 +1614,8 @@
                     });
                     // Продолжаем сканирование на текущей странице, вызывая forceAutoScan напрямую
                     // Не ждем таймера, так как сканирование уже в процессе
-                    setTimeout(async () => {
+                    // Используем небольшую задержку для инициализации страницы
+                    const continueScan = async () => {
                         if (!this.isForceScanning) {
                             console.log('[Auto Force Scan] Продолжаю сканирование на текущей странице...');
                             try {
@@ -1623,7 +1624,16 @@
                                 console.error('[Auto Force Scan] Ошибка при продолжении сканирования:', error);
                             }
                         }
-                    }, 1000); // Небольшая задержка для инициализации страницы
+                    };
+                    
+                    // Если документ уже загружен, запускаем сразу, иначе ждем DOMContentLoaded
+                    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                        setTimeout(continueScan, 1000);
+                    } else {
+                        document.addEventListener('DOMContentLoaded', () => {
+                            setTimeout(continueScan, 1000);
+                        });
+                    }
                     return; // Выходим, чтобы не запускать startAutoScan
                 } else if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
                     // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
@@ -1785,15 +1795,22 @@
             // Запускаем при загрузке страницы (только если не страница attempt.php)
             // На страницах attempt.php автосканирование не нужно, так как это страница прохождения теста
             // Проверка уже выполнена выше, здесь просто запускаем
-            if (document.readyState === 'loading') {
-                console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
-                document.addEventListener('DOMContentLoaded', () => {
-                    console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
+            // Но только если сканирование не было продолжено выше (когда был return)
+            const wasScanContinued = scanState.autoScanInProgress && scanState.autoScanUrl && scanState.autoScanUrl !== currentUrl;
+            
+            if (!wasScanContinued) {
+                if (document.readyState === 'loading') {
+                    console.log('[Auto Force Scan] Документ загружается, жду DOMContentLoaded...');
+                    document.addEventListener('DOMContentLoaded', () => {
+                        console.log('[Auto Force Scan] DOMContentLoaded, запускаю сканирование...');
+                        startAutoScan('загрузка страницы');
+                    });
+                } else {
+                    console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
                     startAutoScan('загрузка страницы');
-                });
+                }
             } else {
-                console.log('[Auto Force Scan] Документ уже загружен, запускаю сканирование...');
-                startAutoScan('загрузка страницы');
+                console.log('[Auto Force Scan] Сканирование уже продолжено, не запускаю startAutoScan');
             }
 
             // Слушаем изменения DOM для автоматического запуска при навигации

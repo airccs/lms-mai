@@ -23,6 +23,7 @@ export default function SavedDataApp() {
   const [stats, setStats] = useState({
     total: 0,
     correct: 0,
+    accuracy: 0,
     sizeKB: 0
   });
 
@@ -65,11 +66,15 @@ export default function SavedDataApp() {
   };
 
   const updateStats = (items: SavedAnswer[]) => {
-    const correctCount = items.filter(item => item.isCorrect === true).length;
+    // Проверяем isCorrect как boolean (true) или INTEGER (1) из SQLite
+    const correctCount = items.filter(item => item.isCorrect === true || item.isCorrect === 1).length;
+    const totalWithIsCorrect = items.filter(item => item.isCorrect !== null && item.isCorrect !== undefined).length;
+    const accuracy = totalWithIsCorrect > 0 ? Math.round((correctCount / totalWithIsCorrect) * 100) : 0;
     const dataSize = JSON.stringify(items).length;
     setStats({
       total: items.length,
       correct: correctCount,
+      accuracy: accuracy,
       sizeKB: Math.round(dataSize / 1024 * 100) / 100
     });
   };
@@ -253,12 +258,12 @@ export default function SavedDataApp() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <span className="text-sm font-medium text-gray-500">Вопрос #{index + 1}</span>
-                          {item.isCorrect === true && (
+                          {(item.isCorrect === true || item.isCorrect === 1) && (
                             <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs font-medium border border-green-200">
                               Правильно
                             </span>
                           )}
-                          {item.isCorrect === false && (
+                          {(item.isCorrect === false || item.isCorrect === 0) && (
                             <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded text-xs font-medium border border-red-200">
                               Неправильно
                             </span>

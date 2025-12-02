@@ -64,12 +64,35 @@
                     return null;
                 }
 
-                const response = await chrome.runtime.sendMessage(message);
+                // Используем Promise с таймаутом для предотвращения зависания
+                const timeout = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Timeout: запрос к серверу превысил 10 секунд')), 10000);
+                });
+
+                const sendMessage = new Promise((resolve, reject) => {
+                    try {
+                        chrome.runtime.sendMessage(message, (response) => {
+                            if (chrome.runtime.lastError) {
+                                reject(new Error(chrome.runtime.lastError.message));
+                            } else {
+                                resolve(response);
+                            }
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+
+                const response = await Promise.race([sendMessage, timeout]);
                 return response;
             } catch (error) {
-                // Игнорируем ошибку "Could not establish connection" - это нормально, если background script не загружен
-                if (error.message && error.message.includes('Could not establish connection')) {
-                    console.warn('[safeSendMessage] Background script не готов, игнорирую:', message.action);
+                // Игнорируем ошибки, связанные с закрытием порта или недоступностью background script
+                const errorMessage = error.message || error.toString();
+                if (errorMessage.includes('Could not establish connection') ||
+                    errorMessage.includes('message port closed') ||
+                    errorMessage.includes('Extension context invalidated') ||
+                    errorMessage.includes('The message port closed')) {
+                    console.warn('[safeSendMessage] Background script недоступен или порт закрыт, игнорирую:', message.action);
                     return null;
                 }
                 // Для других ошибок логируем

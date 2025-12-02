@@ -266,14 +266,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Кнопка очистки всех данных
-    // Кнопка очистки данных (только в dev режиме)
+    // Кнопка очистки всех данных (отключена в production)
     const clearAllBtn = document.getElementById('clear-all-btn');
     if (clearAllBtn) {
-        // Кнопка очистки доступна всегда (очищает только локальные данные)
-        clearAllBtn.addEventListener('click', () => {
-            clearAllData();
-        });
+        if (IS_DEV_MODE) {
+            clearAllBtn.addEventListener('click', () => {
+                clearAllData();
+            });
+        } else {
+            // Скрываем кнопку в production
+            clearAllBtn.style.display = 'none';
+        }
     }
 
     // Кнопка автосканирования

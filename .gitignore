@@ -48,3 +48,8 @@ wrangler.toml
 *.temp
 .cache/
 
+# Server database
+server/quiz_data.db
+server/quiz_data.db-journal
+server/node_modules/
+

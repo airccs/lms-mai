@@ -1,0 +1,2 @@
+Добавить обработку ошибки Extension context invalidated для chrome.storage
+

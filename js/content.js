@@ -3748,8 +3748,9 @@
                     }
                 }
                 
-                // Если есть данные о правильности из сохраненных ответов
-                if (correctCount > 0 || incorrectCount > 0) {
+                // Если локальный сохраненный ответ уже определил правильность, используем его
+                // Иначе используем данные с сервера
+                if (isCorrect === null && (correctCount > 0 || incorrectCount > 0)) {
                     if (correctCount > incorrectCount) {
                         isCorrect = true;
                         confidence = Math.round((correctCount / (correctCount + incorrectCount)) * 100);
@@ -3757,6 +3758,11 @@
                         isCorrect = false;
                         confidence = Math.round((incorrectCount / (correctCount + incorrectCount)) * 100);
                     }
+                }
+                
+                // Логирование для отладки
+                if (isCorrect !== null) {
+                    console.log(`[Answer Icons] Вариант ${value} (${text.substring(0, 20)}...): isCorrect=${isCorrect}, confidence=${confidence}%, correctCount=${correctCount}, incorrectCount=${incorrectCount}`);
                 }
                 
                 // Метод 3: Проверяем статистику (если не определили из сохраненных ответов)

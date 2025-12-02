@@ -841,8 +841,18 @@
                     }
                 }
 
-                // Если на текущей странице ничего не найдено, запускаем полное сканирование всех курсов
-                if (totalScanned === 0 && !currentUrl.includes('attempt.php')) {
+                // Если на текущей странице ничего не найдено, проверяем, нужно ли запускать полное сканирование
+                // Полное сканирование запускаем только если:
+                // 1. На текущей странице ничего не найдено
+                // 2. Это не страница attempt.php
+                // 3. Сканирование еще не началось (нет отсканированных URL) или это первый запуск
+                const scanProgress = await this.safeStorageGet(['scannedUrls']) || {};
+                const scannedUrls = scanProgress.scannedUrls || [];
+                const shouldStartFullScan = totalScanned === 0 && 
+                                          !currentUrl.includes('attempt.php') && 
+                                          scannedUrls.length === 0; // Запускаем только если еще ничего не отсканировано
+                
+                if (shouldStartFullScan) {
                     console.log('[Force Auto Scan] На текущей странице нет ссылок, запускаю полное сканирование всех курсов...');
                     this.showNotification('Запускаю полное сканирование всех курсов...', 'info');
                     
@@ -927,6 +937,9 @@
                     } catch (error) {
                         console.error('[Force Auto Scan] Ошибка при полном сканировании курсов:', error);
                     }
+                } else if (totalScanned === 0 && !currentUrl.includes('attempt.php') && scannedUrls.length > 0) {
+                    // Если на странице нет ссылок, но сканирование уже в процессе, просто продолжаем
+                    console.log(`[Force Auto Scan] На текущей странице нет ссылок, но сканирование уже в процессе (отсканировано ${scannedUrls.length} URL), продолжаю...`);
                 }
 
                 console.log(`[Force Auto Scan] Итоги сканирования: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);

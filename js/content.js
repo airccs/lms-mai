@@ -624,6 +624,111 @@
                     }
                 }
 
+                // Если на текущей странице ничего не найдено, запускаем полное сканирование всех курсов
+                if (totalScanned === 0 && !currentUrl.includes('attempt.php')) {
+                    console.log('[Force Auto Scan] На текущей странице нет ссылок, запускаю полное сканирование всех курсов...');
+                    this.showNotification('Запускаю полное сканирование всех курсов...', 'info');
+                    
+                    // Переходим к сканированию всех курсов с главной страницы
+                    try {
+                        const mainPageUrl = 'https://lms.mai.ru/';
+                        const courseLinks = await this.findCoursesOnPage();
+                        
+                        // Если на текущей странице нет курсов, загружаем главную страницу
+                        let coursesToScan = courseLinks;
+                        if (coursesToScan.length === 0) {
+                            console.log('[Force Auto Scan] На текущей странице нет курсов, загружаю главную страницу...');
+                            const response = await fetch(mainPageUrl, {
+                                credentials: 'include',
+                                headers: {
+                                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                    'Accept-Language': 'ru-RU,ru;q=0.9',
+                                    'Referer': currentUrl,
+                                    'User-Agent': navigator.userAgent
+                                },
+                                mode: 'cors',
+                                redirect: 'follow'
+                            });
+                            
+                            if (response.ok) {
+                                const html = await response.text();
+                                const parser = new DOMParser();
+                                const doc = parser.parseFromString(html, 'text/html');
+                                
+                                // Ищем ссылки на курсы на главной странице
+                                const mainPageCourses = [];
+                                doc.querySelectorAll('a[href*="/course/view.php"], a[href*="/course/"]').forEach(a => {
+                                    if (a.href && a.href.includes('/course/') && !mainPageCourses.includes(a.href)) {
+                                        const urlWithLang = a.href.includes('lang=') ? a.href : 
+                                                          (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
+                                        mainPageCourses.push(urlWithLang);
+                                    }
+                                });
+                                
+                                coursesToScan = mainPageCourses;
+                                console.log(`[Force Auto Scan] На главной странице найдено ${coursesToScan.length} курсов`);
+                            }
+                        }
+                        
+                        // Дедупликация курсов по ID
+                        const uniqueCourses = new Map();
+                        coursesToScan.forEach(url => {
+                            const match = url.match(/[?&]id=(\d+)/);
+                            if (match) {
+                                const courseId = match[1];
+                                if (!uniqueCourses.has(courseId)) {
+                                    uniqueCourses.set(courseId, url);
+                                }
+                            } else {
+                                uniqueCourses.set(url, url);
+                            }
+                        });
+                        
+                        const uniqueCourseLinks = Array.from(uniqueCourses.values());
+                        
+                        if (uniqueCourseLinks.length > 0) {
+                            console.log(`[Force Auto Scan] Найдено ${uniqueCourseLinks.length} уникальных курсов для полного сканирования`);
+                            this.showNotification(`Сканирую ${uniqueCourseLinks.length} курсов...`, 'info');
+                            
+                            for (let i = 0; i < uniqueCourseLinks.length; i++) {
+                                const courseUrl = uniqueCourseLinks[i];
+                                console.log(`[Force Auto Scan] [${i + 1}/${uniqueCourseLinks.length}] Обрабатываю курс: ${courseUrl}`);
+                                
+                                // Обновляем heartbeat
+                                if (this.isForceScanning) {
+                                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                                }
+                                
+                                const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
+                                console.log(`[Force Auto Scan] В курсе найдено ${reviewLinks.length} ссылок на результаты`);
+                                
+                                // Сканируем все найденные результаты
+                                for (const reviewLink of reviewLinks) {
+                                    // Обновляем heartbeat перед каждым сканированием
+                                    if (this.isForceScanning) {
+                                        await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                                    }
+                                    
+                                    try {
+                                        const result = await this.scanReviewPageWithFetch(reviewLink);
+                                        totalScanned++;
+                                        totalFound += result.questions;
+                                        totalSaved += result.saved;
+                                    } catch (error) {
+                                        console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                                    }
+                                    
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                }
+                            }
+                        } else {
+                            console.log('[Force Auto Scan] Не удалось найти курсы для полного сканирования');
+                        }
+                    } catch (error) {
+                        console.error('[Force Auto Scan] Ошибка при полном сканировании курсов:', error);
+                    }
+                }
+
                 console.log(`[Force Auto Scan] Итоги сканирования: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);
                 this.showNotification(`Сканирование завершено! Просканировано: ${totalScanned}, найдено: ${totalFound}, сохранено: ${totalSaved}`, 'success');
             } catch (error) {

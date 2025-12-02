@@ -323,17 +323,25 @@ async function handleServerSync(request, sendResponse) {
         } else if (syncAction === 'saveAnswer') {
             // Отправляем сохраненный ответ на сервер
             const { questionText, questionImage } = request;
+            
+            // Логируем размер данных перед отправкой
+            const imageSize = questionImage ? questionImage.length : 0;
+            const textSize = questionText ? questionText.length : 0;
+            console.log(`[handleServerSync] Отправка saveAnswer: questionHash=${questionHash}, imageSize=${imageSize}, textSize=${textSize}`);
+            
+            const requestBody = {
+                questionHash,
+                answer,
+                isCorrect,
+                questionText: questionText || null,
+                questionImage: questionImage || null,
+                timestamp: Date.now()
+            };
+            
             response = await fetchWithTimeout(`${apiUrl}/api/save`, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify({
-                    questionHash,
-                    answer,
-                    isCorrect,
-                    questionText: questionText || null,
-                    questionImage: questionImage || null,
-                    timestamp: Date.now()
-                })
+                body: JSON.stringify(requestBody)
             });
         } else if (syncAction === 'getSavedAnswers') {
             // Получаем сохраненные ответы других пользователей
@@ -386,15 +394,34 @@ async function handleServerSync(request, sendResponse) {
         } else {
             const status = response?.status || 0;
             const statusText = response?.statusText || 'Unknown error';
-            const errorMessage = `HTTP error! status: ${status} ${statusText}`;
             
+            // Пытаемся получить детали ошибки от сервера
+            let errorDetails = null;
+            try {
+                const errorText = await response.text();
+                if (errorText) {
+                    try {
+                        errorDetails = JSON.parse(errorText);
+                    } catch (e) {
+                        errorDetails = { message: errorText.substring(0, 500) };
+                    }
+                }
+            } catch (e) {
+                // Игнорируем ошибки при чтении ответа
+            }
+            
+            const errorMessage = `HTTP error! status: ${status} ${statusText}`;
             console.error('[handleServerSync] Ошибка запроса:', errorMessage);
+            if (errorDetails) {
+                console.error('[handleServerSync] Детали ошибки от сервера:', errorDetails);
+            }
             
             // Передаем код ошибки для обработки в content script
             sendResponse({ 
                 success: false, 
                 error: errorMessage,
                 statusCode: status,
+                errorDetails: errorDetails,
                 localOnly: true 
             });
         }

@@ -623,6 +623,10 @@
             console.log('[Force Auto Scan] Флаги установлены, начинаю сканирование...');
             this.showNotification('Начинаю принудительное автосканирование...', 'info');
             
+            // Объявляем currentUrl вне блока try, чтобы он был доступен в finally
+            const currentUrl = window.location.href;
+            console.log(`[Force Auto Scan] Текущий URL: ${currentUrl}`);
+            
             // Устанавливаем интервал для обновления heartbeat каждые 10 секунд
             let heartbeatInterval = null;
             heartbeatInterval = setInterval(async () => {
@@ -639,9 +643,6 @@
                 let totalScanned = 0;
                 let totalFound = 0;
                 let totalSaved = 0;
-
-                const currentUrl = window.location.href;
-                console.log(`[Force Auto Scan] Текущий URL: ${currentUrl}`);
 
                 // Если это главная страница или список курсов, ищем курсы
                 if (currentUrl.includes('lms.mai.ru') && 

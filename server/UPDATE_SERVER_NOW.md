@@ -32,6 +32,8 @@ grep -n "/api/db/stats" server/server.js
 
 Должна быть строка с `app.get('/api/db/stats'`.
 
+✅ **Если endpoint уже есть в коде (как у вас), но все равно возвращает 404, значит сервер не был перезапущен!**
+
 ### Шаг 6: Запустите сервер обратно
 ```bash
 sudo systemctl start lms-api
@@ -82,4 +84,31 @@ sudo systemctl restart lms-api
 ```bash
 ssh ubuntu@130.61.200.70 "cd ~/lms-server && sudo systemctl stop lms-api && git pull && sudo systemctl start lms-api && sleep 2 && sudo systemctl status lms-api --no-pager"
 ```
+
+## Если endpoint уже есть в коде, но возвращает 404
+
+Если вы видите, что endpoint `/api/db/stats` уже есть в `server.js` (строка 399), но все равно получаете `{"error":"Not found"}`, значит **сервер не был перезапущен** после обновления кода.
+
+### Решение: просто перезапустите сервер
+
+```bash
+# На сервере выполните:
+sudo systemctl restart lms-api
+
+# Проверьте статус
+sudo systemctl status lms-api
+
+# Проверьте работу endpoint
+curl http://localhost:8080/api/db/stats
+```
+
+### Проверка логов
+
+Если после перезапуска все еще не работает, проверьте логи:
+
+```bash
+sudo journalctl -u lms-api -n 50 --no-pager
+```
+
+Ищите ошибки при запуске или загрузке модулей.
 

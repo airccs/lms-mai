@@ -3617,11 +3617,11 @@
             });
         }
 
-        addAnswerIcons() {
+        async addAnswerIcons() {
             // Добавляем иконки правильности рядом с вариантами ответа
-            this.questions.forEach((question, id) => {
-                this.addIconsToQuestion(question);
-            });
+            for (const [id, question] of this.questions.entries()) {
+                await this.addIconsToQuestion(question);
+            }
         }
 
         async addIconsToQuestion(question) {

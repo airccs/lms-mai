@@ -269,8 +269,48 @@
                             const userAnswer = this.extractUserAnswerFromReview(element, question);
                             
                             if (isCorrect !== null && userAnswer) {
-                                // Обновляем только если статус изменился или был неизвестен
-                                if (savedData.isCorrect !== isCorrect || savedData.isCorrect === null) {
+                                // Функция для сравнения ответов
+                                const answersMatch = (savedAnswer, currentAnswer) => {
+                                    if (!savedAnswer || !currentAnswer) return false;
+                                    
+                                    // Если оба - объекты с value и text
+                                    if (typeof savedAnswer === 'object' && typeof currentAnswer === 'object') {
+                                        // Сравнение по value (самый надежный способ)
+                                        if (savedAnswer.value && currentAnswer.value && 
+                                            savedAnswer.value === currentAnswer.value) {
+                                            return true;
+                                        }
+                                        // Сравнение по тексту
+                                        if (savedAnswer.text && currentAnswer.text && 
+                                            savedAnswer.text.trim() === currentAnswer.text.trim()) {
+                                            return true;
+                                        }
+                                    }
+                                    
+                                    // Если оба - строки
+                                    if (typeof savedAnswer === 'string' && typeof currentAnswer === 'string') {
+                                        return savedAnswer.trim() === currentAnswer.trim();
+                                    }
+                                    
+                                    // Если один объект, другой строка - сравниваем text со строкой
+                                    if (typeof savedAnswer === 'object' && typeof currentAnswer === 'string') {
+                                        return savedAnswer.text && savedAnswer.text.trim() === currentAnswer.trim();
+                                    }
+                                    if (typeof savedAnswer === 'string' && typeof currentAnswer === 'object') {
+                                        return currentAnswer.text && savedAnswer.trim() === currentAnswer.text.trim();
+                                    }
+                                    
+                                    return false;
+                                };
+                                
+                                // ВАЖНО: Всегда обновляем ответы с isCorrect === null или undefined
+                                // Это ответы, сохраненные во время решения теста
+                                const shouldUpdate = savedData.isCorrect === null || 
+                                                   savedData.isCorrect === undefined ||
+                                                   savedData.isCorrect !== isCorrect ||
+                                                   !answersMatch(savedData.answer, userAnswer);
+                                
+                                if (shouldUpdate) {
                                     const questionImage = await this.extractQuestionImage(element);
                                     await this.saveAnswer(
                                         question.hash, 
@@ -280,7 +320,7 @@
                                         questionImage || savedData.questionImage
                                     );
                                     updatedCount++;
-                                    console.log(`[Review Scanner] Обновлен ответ для hash: ${question.hash}, isCorrect: ${isCorrect}`);
+                                    console.log(`[Review Scanner] Обновлен ответ для hash: ${question.hash}, isCorrect: ${isCorrect} (было: ${savedData.isCorrect})`);
                                 }
                             }
                         }
@@ -5008,6 +5048,12 @@
                 // Определяем правильность, если возможно
                 const isCorrect = this.checkAnswerCorrectness(question, answer);
                 
+                // На странице теста isCorrect обычно null (правильность неизвестна до проверки)
+                // Ответ будет обновлен с правильным isCorrect на странице результатов
+                if (isCorrect === null) {
+                    console.log(`[Auto Save] Сохраняю ответ для вопроса ${question.hash} с isCorrect=null (будет обновлено на странице результатов)`);
+                }
+                
                 // Извлекаем изображение из вопроса
                 const questionImage = await this.extractQuestionImage(question.element);
                 
@@ -5017,7 +5063,7 @@
                 // Показываем индикатор сохранения
                 this.showAutoSaveIndicator(question.element);
                 
-                console.log(`Auto-saved answer for question ${question.hash}`);
+                console.log(`[Auto Save] Сохранен ответ для вопроса ${question.hash}, isCorrect: ${isCorrect}`);
             } catch (e) {
                 console.error('Error auto-saving answer:', e);
             }

@@ -122,15 +122,17 @@
             try {
                 if (!chrome || !chrome.storage || !chrome.storage.local) {
                     console.warn('[safeStorageSet] chrome.storage.local недоступен');
-                    return;
+                    return false;
                 }
                 await chrome.storage.local.set(items);
+                return true;
             } catch (error) {
                 if (error.message && error.message.includes('Extension context invalidated')) {
                     console.warn('[safeStorageSet] Контекст расширения недействителен, игнорирую ошибку:', error.message);
-                    return;
+                    return false;
                 }
                 console.error('[safeStorageSet] Ошибка при сохранении данных в storage:', error);
+                return false;
             }
         }
 

@@ -224,6 +224,13 @@ app.post('/api/save', (req, res) => {
       normalizedTimestamp = Math.floor(Date.now() / 1000);
     }
 
+    // Нормализуем isCorrect - SQLite ожидает INTEGER (0, 1) или NULL
+    let normalizedIsCorrect = null;
+    if (isCorrect !== null && isCorrect !== undefined) {
+      // Конвертируем в число: true -> 1, false -> 0
+      normalizedIsCorrect = isCorrect === true || isCorrect === 1 || isCorrect === '1' ? 1 : 0;
+    }
+
     // Сериализуем answer в JSON
     let answerJson;
     try {
@@ -235,9 +242,12 @@ app.post('/api/save', (req, res) => {
 
     // Ограничиваем размер текста вопроса (максимум 100KB)
     let processedText = questionText;
-    if (processedText && processedText.length > 100 * 1024) {
+    if (processedText && typeof processedText === 'string' && processedText.length > 100 * 1024) {
       console.warn(`[POST /api/save] Текст вопроса слишком большой (${processedText.length} байт), обрезаю`);
       processedText = processedText.substring(0, 100 * 1024);
+    } else if (processedText && typeof processedText !== 'string') {
+      // Если это не строка, конвертируем в строку
+      processedText = String(processedText);
     }
 
     // Check if answer already exists
@@ -265,10 +275,10 @@ app.post('/api/save', (req, res) => {
         `);
         
         stmt.run(
-          isCorrect !== null ? isCorrect : existingAnswer.is_correct,
-          processedText || existingAnswer.question_text,
-          processedImage || existingAnswer.question_image,
-          normalizedTimestamp || existingAnswer.timestamp,
+          normalizedIsCorrect !== null ? normalizedIsCorrect : (existingAnswer.is_correct !== null ? existingAnswer.is_correct : null),
+          processedText || existingAnswer.question_text || null,
+          processedImage || existingAnswer.question_image || null,
+          normalizedTimestamp || existingAnswer.timestamp || null,
           existingAnswer.id
         );
       } catch (e) {
@@ -287,7 +297,7 @@ app.post('/api/save', (req, res) => {
         stmt.run(
           questionHash,
           answerJson,
-          isCorrect,
+          normalizedIsCorrect, // Используем нормализованное значение
           processedText || null,
           processedImage || null,
           normalizedTimestamp

@@ -2753,8 +2753,12 @@
                 }
                 
                 const serverAnswers = response.answers || [];
-                const totalOnServer = response.total || serverAnswers.length;
+                const totalOnServer = response.total || response.data?.total || serverAnswers.length;
                 console.log(`[loadSavedAnswersFromServer] Получено ${serverAnswers.length} ответов с сервера (всего на сервере: ${totalOnServer})`);
+                
+                if (totalOnServer > 0 && serverAnswers.length !== totalOnServer) {
+                    console.warn(`[loadSavedAnswersFromServer] ⚠️ ВНИМАНИЕ: Получено ${serverAnswers.length} ответов, но на сервере ${totalOnServer}! Возможно, нужна пагинация.`);
+                }
                 
                 // Объединяем данные с сервера с локальными
                 let mergedCount = 0;

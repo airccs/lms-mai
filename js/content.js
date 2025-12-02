@@ -2866,7 +2866,24 @@
                     }
                 }
                 
-                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера (новых: ${newCount}, обновлено: ${mergedCount - newCount}), пропущено ${skippedCount} (локальные новее или равны), всего: ${this.savedAnswers.size}`);
+                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера (новых: ${newCount}, обновлено: ${mergedCount - newCount}), пропущено ${skippedCount}, всего: ${this.savedAnswers.size}`);
+                
+                // Дополнительное логирование для диагностики
+                if (mergedCount === 0 && serverAnswers.length > 0) {
+                    console.warn(`[loadSavedAnswersFromServer] ⚠️ ВНИМАНИЕ: Все ${serverAnswers.length} ответов с сервера были пропущены!`);
+                    console.warn(`[loadSavedAnswersFromServer] Пример первого ответа:`, {
+                        questionHash: serverAnswers[0]?.questionHash,
+                        timestamp: serverAnswers[0]?.timestamp,
+                        isCorrect: serverAnswers[0]?.isCorrect
+                    });
+                    if (serverAnswers[0]?.questionHash) {
+                        const local = this.savedAnswers.get(serverAnswers[0].questionHash);
+                        console.warn(`[loadSavedAnswersFromServer] Локальный ответ для этого вопроса:`, local ? {
+                            timestamp: local.timestamp,
+                            isCorrect: local.isCorrect
+                        } : 'не найден');
+                    }
+                }
             } catch (e) {
                 console.error('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера:', e);
             }

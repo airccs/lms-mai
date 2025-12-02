@@ -472,9 +472,13 @@
             let scannedUrls = Array.isArray(scanState.scannedUrls) ? [...scanState.scannedUrls] : [];
             let scannedUrlsMeta = scanState.scannedUrlsMeta ? { ...scanState.scannedUrlsMeta } : {};
             
-            // Добавляем URL в список отсканированных, если его там еще нет
-            if (!scannedUrls.includes(normalizedUrl)) {
+            // Проверяем, не был ли уже отмечен этот URL
+            if (scannedUrls.includes(normalizedUrl)) {
+                console.log(`[Force Auto Scan] ⚠️ URL уже был отмечен как отсканированный: ${normalizedUrl}, обновляю метаданные (оригинал: ${url})`);
+            } else {
+                // Добавляем URL в список отсканированных, если его там еще нет
                 scannedUrls.push(normalizedUrl);
+                console.log(`[Force Auto Scan] ✓ Добавляю новый URL в список отсканированных: ${normalizedUrl} (оригинал: ${url})`);
             }
             
             // Сохраняем метаданные о сканировании (количество найденных вопросов, время сканирования)

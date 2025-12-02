@@ -673,6 +673,8 @@
                     
                     if (uniqueCourseLinks.length > 0) {
                         console.log(`[Force Auto Scan] Найдено ${courseLinks.length} ссылок, уникальных курсов: ${uniqueCourseLinks.length}`);
+                        // Сохраняем список курсов для продолжения сканирования на других страницах
+                        await this.safeStorageSet({ coursesToScan: uniqueCourseLinks });
                         this.showNotification(`Найдено ${uniqueCourseLinks.length} курсов. Сканирую...`, 'info');
                         
                         for (let i = 0; i < uniqueCourseLinks.length; i++) {
@@ -947,8 +949,81 @@
                         console.error('[Force Auto Scan] Ошибка при полном сканировании курсов:', error);
                     }
                 } else if (totalScanned === 0 && !currentUrl.includes('attempt.php') && scannedUrls.length > 0) {
-                    // Если на странице нет ссылок, но сканирование уже в процессе, просто продолжаем
-                    console.log(`[Force Auto Scan] На текущей странице нет ссылок, но сканирование уже в процессе (отсканировано ${scannedUrls.length} URL), продолжаю...`);
+                    // Если на странице нет ссылок, но сканирование уже в процессе, продолжаем сканирование всех курсов
+                    console.log(`[Force Auto Scan] На текущей странице нет ссылок, но сканирование уже в процессе (отсканировано ${scannedUrls.length} URL), продолжаю сканирование всех курсов...`);
+                    
+                    // Получаем список курсов для сканирования из storage или находим их на текущей странице
+                    const scanProgressState = await this.safeStorageGet(['coursesToScan']) || {};
+                    let coursesToScan = scanProgressState.coursesToScan || [];
+                    
+                    // Если список курсов не сохранен, пытаемся найти их на текущей странице
+                    if (coursesToScan.length === 0) {
+                        coursesToScan = await this.findCoursesOnPage();
+                        if (coursesToScan.length > 0) {
+                            // Сохраняем список курсов для дальнейшего использования
+                            await this.safeStorageSet({ coursesToScan: coursesToScan });
+                        }
+                    }
+                    
+                    // Если есть курсы для сканирования, продолжаем их обработку
+                    if (coursesToScan.length > 0) {
+                        // Дедупликация курсов по ID
+                        const uniqueCourses = new Map();
+                        coursesToScan.forEach(url => {
+                            const match = url.match(/[?&]id=(\d+)/);
+                            if (match) {
+                                const courseId = match[1];
+                                if (!uniqueCourses.has(courseId)) {
+                                    uniqueCourses.set(courseId, url);
+                                }
+                            } else {
+                                uniqueCourses.set(url, url);
+                            }
+                        });
+                        
+                        const uniqueCourseLinks = Array.from(uniqueCourses.values());
+                        console.log(`[Force Auto Scan] Продолжаю сканирование ${uniqueCourseLinks.length} курсов...`);
+                        
+                        for (let i = 0; i < uniqueCourseLinks.length; i++) {
+                            const courseUrl = uniqueCourseLinks[i];
+                            
+                            // Обновляем heartbeat
+                            if (this.isForceScanning) {
+                                await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                            }
+                            
+                            const reviewLinks = await this.findReviewLinksFromCourse(courseUrl);
+                            console.log(`[Force Auto Scan] В курсе ${courseUrl} найдено ${reviewLinks.length} ссылок на результаты`);
+                            
+                            // Сканируем все найденные результаты
+                            for (const reviewLink of reviewLinks) {
+                                // Проверяем, не был ли уже отсканирован этот URL
+                                if (await this.isUrlScanned(reviewLink)) {
+                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                    continue;
+                                }
+                                
+                                // Обновляем heartbeat перед каждым сканированием
+                                if (this.isForceScanning) {
+                                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                                }
+                                
+                                try {
+                                    const result = await this.scanReviewPageWithFetch(reviewLink);
+                                    totalScanned++;
+                                    totalFound += result.questions;
+                                    totalSaved += result.saved;
+                                    // Отмечаем URL как отсканированный
+                                    await this.markUrlAsScanned(reviewLink, result.questions);
+                                } catch (error) {
+                                    console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                                    await this.markUrlAsFailed(reviewLink, error);
+                                }
+                                
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                            }
+                        }
+                    }
                 }
 
                 // Проверяем, нужно ли завершать сканирование

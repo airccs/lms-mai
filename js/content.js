@@ -985,15 +985,29 @@
                 this.showNotification('Ошибка при автосканировании: ' + error.message, 'error');
             } finally {
                 // Проверяем, нужно ли сбрасывать флаги сканирования
-                const finalCheckState = await this.safeStorageGet(['scannedUrls', 'autoScanUrl']) || {};
+                const finalCheckState = await this.safeStorageGet(['scannedUrls', 'autoScanUrl', 'autoScanInProgress']) || {};
                 const finalCheckScannedUrls = finalCheckState.scannedUrls || [];
                 const finalCheckScanUrl = finalCheckState.autoScanUrl;
-                const isStillScanning = finalCheckScanUrl && finalCheckScanUrl !== currentUrl && finalCheckScannedUrls.length > 0;
+                const isScanInProgress = finalCheckState.autoScanInProgress;
                 
-                // Сбрасываем локальный флаг, но не глобальный, если сканирование продолжается
+                // Не сбрасываем флаги, если:
+                // 1. Сканирование помечено как активное
+                // 2. И есть отсканированные URL (значит, сканирование действительно идет)
+                // 3. И мы не на главной странице, где сканирование началось (или если на главной, но есть отсканированные URL)
+                const isMainPage = currentUrl === 'https://lms.mai.ru/' || 
+                                 currentUrl.includes('lms.mai.ru/my') ||
+                                 currentUrl.includes('lms.mai.ru/?redirect=0');
+                
+                // Если есть отсканированные URL и сканирование активно, не сбрасываем флаги
+                // Исключение: если мы на главной странице, где началось сканирование, и totalScanned > 0 (что-то обработано)
+                const shouldKeepScanning = isScanInProgress && 
+                                         finalCheckScannedUrls.length > 0 && 
+                                         !(isMainPage && totalScanned > 0 && finalCheckScannedUrls.length === totalScanned);
+                
+                // Сбрасываем локальный флаг
                 this.isForceScanning = false;
                 
-                if (!isStillScanning) {
+                if (!shouldKeepScanning) {
                     // Сбрасываем флаги сканирования только если сканирование действительно завершено
                     await this.safeStorageSet({ 
                         autoScanInProgress: false, 
@@ -1003,7 +1017,7 @@
                     });
                     console.log('[Force Auto Scan] Флаги сканирования сброшены');
                 } else {
-                    console.log('[Force Auto Scan] Сканирование продолжается на других страницах, флаги не сбрасываю');
+                    console.log(`[Force Auto Scan] Сканирование продолжается (отсканировано ${finalCheckScannedUrls.length} URL), флаги не сбрасываю`);
                     // Обновляем heartbeat, чтобы показать, что сканирование активно
                     await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                 }

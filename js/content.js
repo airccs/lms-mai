@@ -3624,7 +3624,7 @@
             });
         }
 
-        addIconsToQuestion(question) {
+        async addIconsToQuestion(question) {
             if (!question || !question.element) return;
             
             // Только для вопросов с вариантами ответа
@@ -3634,7 +3634,27 @@
             const stats = question.statistics;
             const savedAnswer = question.savedAnswer;
             
-            if (!stats && !savedAnswer) return;
+            // Загружаем все сохраненные ответы с сервера, если есть
+            let serverAnswers = [];
+            try {
+                const apiUrl = await this.safeStorageGet(['apiUrl']) || {};
+                const baseUrl = apiUrl.apiUrl || 'http://130.61.200.70:8080';
+                const response = await fetch(`${baseUrl}/api/get?questionHash=${question.hash}`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.answers) {
+                        serverAnswers = data.answers;
+                    }
+                }
+            } catch (e) {
+                // Игнорируем ошибки загрузки с сервера
+            }
+            
+            if (!stats && !savedAnswer && serverAnswers.length === 0) return;
             
             // Находим все варианты ответа на странице
             const inputs = question.element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
@@ -3657,8 +3677,10 @@
                 // Проверяем правильность варианта ответа
                 let isCorrect = null;
                 let confidence = 0;
+                let correctCount = 0;
+                let incorrectCount = 0;
                 
-                // Метод 1: Проверяем сохраненный ответ
+                // Метод 1: Проверяем сохраненный ответ (локальный)
                 if (savedAnswer) {
                     const savedAnswerData = typeof savedAnswer.answer === 'string' 
                         ? JSON.parse(savedAnswer.answer) 
@@ -3670,11 +3692,43 @@
                             (savedAnswerData.text && savedAnswerData.text.trim() === text)) {
                             isCorrect = savedAnswer.isCorrect;
                             confidence = 100;
+                            if (isCorrect) correctCount = 1;
+                            else incorrectCount = 1;
                         }
                     }
                 }
                 
-                // Метод 2: Проверяем статистику
+                // Метод 2: Проверяем все сохраненные ответы с сервера
+                for (const serverAnswer of serverAnswers) {
+                    const answerData = typeof serverAnswer.answer === 'string' 
+                        ? JSON.parse(serverAnswer.answer) 
+                        : serverAnswer.answer;
+                    
+                    if (answerData) {
+                        // Проверяем совпадение по value или text
+                        if (answerData.value === value || 
+                            (answerData.text && answerData.text.trim() === text)) {
+                            if (serverAnswer.isCorrect === true || serverAnswer.isCorrect === 1) {
+                                correctCount++;
+                            } else if (serverAnswer.isCorrect === false || serverAnswer.isCorrect === 0) {
+                                incorrectCount++;
+                            }
+                        }
+                    }
+                }
+                
+                // Если есть данные о правильности из сохраненных ответов
+                if (correctCount > 0 || incorrectCount > 0) {
+                    if (correctCount > incorrectCount) {
+                        isCorrect = true;
+                        confidence = Math.round((correctCount / (correctCount + incorrectCount)) * 100);
+                    } else if (incorrectCount > correctCount) {
+                        isCorrect = false;
+                        confidence = Math.round((incorrectCount / (correctCount + incorrectCount)) * 100);
+                    }
+                }
+                
+                // Метод 3: Проверяем статистику (если не определили из сохраненных ответов)
                 if (isCorrect === null && stats && stats.answers) {
                     // Ищем этот вариант ответа в статистике
                     for (const [answerKey, count] of Object.entries(stats.answers)) {
@@ -3721,11 +3775,13 @@
                     
                     if (isCorrect) {
                         icon.innerHTML = '✅';
-                        icon.title = `Правильный ответ (уверенность: ${confidence}%)`;
+                        const userCount = correctCount > 0 ? ` (${correctCount} пользователей)` : '';
+                        icon.title = `Правильный ответ${userCount} (уверенность: ${confidence}%)`;
                         icon.style.color = '#16a34a';
                     } else {
                         icon.innerHTML = '❌';
-                        icon.title = `Неправильный ответ (уверенность: ${confidence}%)`;
+                        const userCount = incorrectCount > 0 ? ` (${incorrectCount} пользователей)` : '';
+                        icon.title = `Неправильный ответ${userCount} (уверенность: ${confidence}%)`;
                         icon.style.color = '#dc2626';
                     }
                     

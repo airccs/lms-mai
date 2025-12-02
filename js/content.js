@@ -2760,6 +2760,24 @@
                 let mergedCount = 0;
                 let skippedCount = 0;
                 let newCount = 0;
+                
+                // Функция для сравнения ответов (по value и text)
+                const answersEqual = (answer1, answer2) => {
+                    if (!answer1 || !answer2) return false;
+                    
+                    try {
+                        const a1 = typeof answer1 === 'string' ? JSON.parse(answer1) : answer1;
+                        const a2 = typeof answer2 === 'string' ? JSON.parse(answer2) : answer2;
+                        
+                        if (a1.value && a2.value && a1.value === a2.value) return true;
+                        if (a1.text && a2.text && a1.text.trim() === a2.text.trim()) return true;
+                        
+                        return false;
+                    } catch (e) {
+                        return false;
+                    }
+                };
+                
                 for (const serverAnswer of serverAnswers) {
                     const questionHash = serverAnswer.questionHash;
                     if (!questionHash) continue;
@@ -2769,19 +2787,6 @@
                     // Нормализуем timestamps для сравнения (сервер возвращает в миллисекундах)
                     const serverTimestamp = serverAnswer.timestamp || 0;
                     const localTimestamp = localAnswer?.timestamp || 0;
-                    
-                    // Функция для сравнения ответов (по value и text)
-                    const answersEqual = (answer1, answer2) => {
-                        if (!answer1 || !answer2) return false;
-                        
-                        const a1 = typeof answer1 === 'string' ? JSON.parse(answer1) : answer1;
-                        const a2 = typeof answer2 === 'string' ? JSON.parse(answer2) : answer2;
-                        
-                        if (a1.value && a2.value && a1.value === a2.value) return true;
-                        if (a1.text && a2.text && a1.text.trim() === a2.text.trim()) return true;
-                        
-                        return false;
-                    };
                     
                     // Если локального ответа нет - добавляем серверный
                     if (!localAnswer) {
@@ -2885,17 +2890,22 @@
                         if (!serverAnswer?.questionHash) continue;
                         
                         const local = this.savedAnswers.get(serverAnswer.questionHash);
-                        console.warn(`[loadSavedAnswersFromServer] Ответ #${i + 1}:`, {
-                            questionHash: serverAnswer.questionHash,
-                            serverTimestamp: serverAnswer.timestamp,
-                            serverIsCorrect: serverAnswer.isCorrect,
-                            serverAnswer: JSON.stringify(serverAnswer.answer).substring(0, 100),
-                            localExists: !!local,
-                            localTimestamp: local?.timestamp,
-                            localIsCorrect: local?.isCorrect,
-                            localAnswer: local ? JSON.stringify(local.answer).substring(0, 100) : 'нет',
-                            timestampDiff: local ? (serverAnswer.timestamp - local.timestamp) : 'N/A'
-                        });
+                        const serverAnswerStr = JSON.stringify(serverAnswer.answer || {}).substring(0, 150);
+                        const localAnswerStr = local ? JSON.stringify(local.answer || {}).substring(0, 150) : 'нет';
+                        
+                        console.warn(`[loadSavedAnswersFromServer] Ответ #${i + 1}:`);
+                        console.warn(`  questionHash: ${serverAnswer.questionHash}`);
+                        console.warn(`  serverTimestamp: ${serverAnswer.timestamp} (${new Date(serverAnswer.timestamp).toLocaleString('ru-RU')})`);
+                        console.warn(`  serverIsCorrect: ${serverAnswer.isCorrect}`);
+                        console.warn(`  serverAnswer: ${serverAnswerStr}`);
+                        console.warn(`  localExists: ${!!local}`);
+                        if (local) {
+                            console.warn(`  localTimestamp: ${local.timestamp} (${new Date(local.timestamp).toLocaleString('ru-RU')})`);
+                            console.warn(`  localIsCorrect: ${local.isCorrect}`);
+                            console.warn(`  localAnswer: ${localAnswerStr}`);
+                            console.warn(`  timestampDiff: ${serverAnswer.timestamp - local.timestamp} мс`);
+                            console.warn(`  answersEqual: ${answersEqual(serverAnswer.answer, local.answer)}`);
+                        }
                     }
                 }
             } catch (e) {

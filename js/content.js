@@ -685,10 +685,13 @@
                         // Сканируем все найденные результаты
                         for (const reviewLink of reviewLinks) {
                             // Проверяем, не был ли уже отсканирован этот URL
-                            if (await this.isUrlScanned(reviewLink)) {
-                                console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                            const normalizedCheck = this.normalizeUrl(reviewLink);
+                            const isAlreadyScanned = await this.isUrlScanned(reviewLink);
+                            if (isAlreadyScanned) {
+                                console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${normalizedCheck} (оригинал: ${reviewLink})`);
                                 continue;
                             }
+                            console.log(`[Force Auto Scan] Сканирую новый URL: ${normalizedCheck} (оригинал: ${reviewLink})`);
                             
                             // Обновляем heartbeat перед каждым сканированием
                             if (this.isForceScanning) {
@@ -763,10 +766,13 @@
                             // Сканируем все найденные результаты
                             for (const reviewLink of reviewLinks) {
                                 // Проверяем, не был ли уже отсканирован этот URL
-                                if (await this.isUrlScanned(reviewLink)) {
-                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                const normalizedCheck = this.normalizeUrl(reviewLink);
+                                const isAlreadyScanned = await this.isUrlScanned(reviewLink);
+                                if (isAlreadyScanned) {
+                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${normalizedCheck} (оригинал: ${reviewLink})`);
                                     continue;
                                 }
+                                console.log(`[Force Auto Scan] Сканирую новый URL: ${normalizedCheck} (оригинал: ${reviewLink})`);
                                 
                                 // Обновляем heartbeat перед каждым сканированием
                                 if (this.isForceScanning) {
@@ -1072,10 +1078,13 @@
                             // Сканируем все найденные результаты
                             for (const reviewLink of reviewLinks) {
                                 // Проверяем, не был ли уже отсканирован этот URL
-                                if (await this.isUrlScanned(reviewLink)) {
-                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                const normalizedCheck = this.normalizeUrl(reviewLink);
+                                const isAlreadyScanned = await this.isUrlScanned(reviewLink);
+                                if (isAlreadyScanned) {
+                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${normalizedCheck} (оригинал: ${reviewLink})`);
                                     continue;
                                 }
+                                console.log(`[Force Auto Scan] Сканирую новый URL: ${normalizedCheck} (оригинал: ${reviewLink})`);
                                 
                                 // Обновляем heartbeat перед каждым сканированием
                                 if (this.isForceScanning) {

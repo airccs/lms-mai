@@ -2909,6 +2909,9 @@
                 
                 console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера (новых: ${newCount}, обновлено: ${mergedCount - newCount}), пропущено ${skippedCount}, всего: ${this.savedAnswers.size}`);
                 
+                // Обновляем isCorrect для ответов, у которых он null/undefined, используя данные с сервера
+                await this.updateIsCorrectFromServerData(serverAnswers);
+                
                 // Дополнительное логирование для диагностики
                 if (mergedCount === 0 && serverAnswers.length > 0) {
                     console.warn(`[loadSavedAnswersFromServer] ⚠️ ВНИМАНИЕ: Все ${serverAnswers.length} ответов с сервера были пропущены!`);

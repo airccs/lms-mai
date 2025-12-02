@@ -897,6 +897,9 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
 
+            // Извлекаем названия курса и теста из HTML
+            const { courseName, quizName } = this.getCourseAndQuizNamesFromDOM(doc, url);
+
             const beforeData = await this.safeStorageGet(null) || {};
             const beforeCount = Object.keys(beforeData).filter(key => key.startsWith('answer_')).length;
 
@@ -933,6 +936,25 @@
                             console.warn('[scanReviewPageFromHTML] Не удалось извлечь изображение:', e);
                         }
 
+                        // Сохраняем ответ с названиями курса и теста
+                        const existingKey = `answer_${question.hash}`;
+                        const existing = await this.safeStorageGet([existingKey]);
+                        const existingData = existing[existingKey];
+                        
+                        // Обновляем названия, если их еще нет
+                        const answerData = {
+                            answer: userAnswer,
+                            timestamp: existingData?.timestamp || Date.now(),
+                            isCorrect: isCorrect,
+                            questionText: question.text,
+                            questionImage: questionImage,
+                            courseName: courseName || existingData?.courseName || null,
+                            quizName: quizName || existingData?.quizName || null
+                        };
+                        
+                        await this.safeStorageSet({ [existingKey]: answerData });
+                        this.savedAnswers.set(question.hash, answerData);
+                        
                         const wasUpdated = await this.saveAnswer(
                             question.hash,
                             userAnswer,
@@ -2183,15 +2205,14 @@
             }
         }
 
-        // Извлечение названия курса и теста из текущей страницы
-        getCourseAndQuizNames() {
+        // Извлечение названия курса и теста из DOM (может быть document или DocumentFragment)
+        getCourseAndQuizNamesFromDOM(doc = document, url = window.location.href) {
             try {
-                const url = window.location.href;
                 let courseName = null;
                 let quizName = null;
                 
                 // Пытаемся извлечь название курса из breadcrumb или заголовка
-                const breadcrumb = document.querySelector('.breadcrumb, .breadcrumb-item, nav[aria-label="breadcrumb"]');
+                const breadcrumb = doc.querySelector('.breadcrumb, .breadcrumb-item, nav[aria-label="breadcrumb"]');
                 if (breadcrumb) {
                     const breadcrumbLinks = breadcrumb.querySelectorAll('a');
                     breadcrumbLinks.forEach(link => {
@@ -2207,7 +2228,7 @@
                 
                 // Если не нашли в breadcrumb, ищем в заголовках
                 if (!courseName) {
-                    const courseHeader = document.querySelector('h1.coursename, .page-header-headings h1, .course-header h1');
+                    const courseHeader = doc.querySelector('h1.coursename, .page-header-headings h1, .course-header h1');
                     if (courseHeader) {
                         courseName = courseHeader.textContent.trim();
                     }
@@ -2215,7 +2236,7 @@
                 
                 // Ищем название теста в заголовке
                 if (!quizName) {
-                    const quizHeader = document.querySelector('h1.quizname, .page-header-headings h1, .quiz-header h1, h2.quizname');
+                    const quizHeader = doc.querySelector('h1.quizname, .page-header-headings h1, .quiz-header h1, h2.quizname');
                     if (quizHeader) {
                         quizName = quizHeader.textContent.trim();
                     }
@@ -2238,9 +2259,14 @@
                 
                 return { courseName, quizName };
             } catch (e) {
-                console.warn('[getCourseAndQuizNames] Ошибка при извлечении названий:', e);
+                console.warn('[getCourseAndQuizNamesFromDOM] Ошибка при извлечении названий:', e);
                 return { courseName: null, quizName: null };
             }
+        }
+
+        // Извлечение названия курса и теста из текущей страницы
+        getCourseAndQuizNames() {
+            return this.getCourseAndQuizNamesFromDOM(document, window.location.href);
         }
 
         async saveAnswer(questionHash, answer, isCorrect = null, questionText = null, questionImage = null) {

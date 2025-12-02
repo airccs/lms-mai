@@ -1938,12 +1938,42 @@
                 }
             }
             
-            // Если уже есть отсканированные URL и сканирование не в процессе, значит сканирование уже завершено
-            // Запускаем только если scannedUrls пуст или сканирование в процессе
+            // Если уже есть отсканированные URL и сканирование не в процессе, проверяем, есть ли на текущей странице новые тесты
+            // Если есть новые тесты, продолжаем сканирование для них
             if (scannedUrls.length > 0 && !scanState.autoScanInProgress && !scanProgress.dataCleared) {
-                console.log(`[Auto Force Scan] Сканирование уже было выполнено (отсканировано ${scannedUrls.length} URL), не запускаю повторно`);
-                console.log('[Auto Force Scan] Для нового сканирования очистите "Сохраненные данные"');
-                return;
+                // Проверяем, есть ли на текущей странице новые ссылки на результаты, которые еще не отсканированы
+                const currentPageReviewLinks = this.findDirectReviewLinksOnPage();
+                const currentPageQuizLinks = this.findQuizLinksOnPage();
+                
+                // Проверяем, есть ли новые URL для сканирования
+                let hasNewUrls = false;
+                for (const link of currentPageReviewLinks) {
+                    const normalized = this.normalizeUrl(link);
+                    if (!scannedUrls.includes(normalized)) {
+                        hasNewUrls = true;
+                        break;
+                    }
+                }
+                
+                // Если есть ссылки на тесты, проверяем их (асинхронно, но не блокируем)
+                if (!hasNewUrls && currentPageQuizLinks.length > 0) {
+                    // Проверяем хотя бы первый тест, чтобы понять, есть ли новые результаты
+                    // Это упрощенная проверка, полная проверка будет в forceAutoScan
+                    console.log(`[Auto Force Scan] На странице найдено ${currentPageQuizLinks.length} тестов, проверю наличие новых результатов...`);
+                    hasNewUrls = true; // Предполагаем, что могут быть новые результаты
+                }
+                
+                if (!hasNewUrls && currentPageReviewLinks.length === 0 && currentPageQuizLinks.length === 0) {
+                    console.log(`[Auto Force Scan] Сканирование уже было выполнено (отсканировано ${scannedUrls.length} URL), на текущей странице нет новых тестов`);
+                    console.log('[Auto Force Scan] Если появятся новые тесты, они будут автоматически догружены при переходе на страницу с ними');
+                    return;
+                } else if (hasNewUrls) {
+                    console.log(`[Auto Force Scan] На текущей странице найдены новые тесты, продолжаю сканирование для них (отсканировано ${scannedUrls.length} URL)`);
+                    // Продолжаем выполнение, чтобы запустить сканирование для новых тестов
+                } else {
+                    console.log(`[Auto Force Scan] Сканирование уже было выполнено (отсканировано ${scannedUrls.length} URL), но проверю текущую страницу на наличие новых тестов`);
+                    // Продолжаем выполнение для проверки
+                }
             }
             
             // Защита от слишком частых запусков

@@ -2832,11 +2832,18 @@
                         
                         mergedCount++;
                     }
-                    // Если это другой ответ - добавляем как дополнительный (для разных пользователей)
+                    // Если это другой ответ - добавляем (для разных пользователей)
+                    // ВАЖНО: Добавляем ответы других пользователей, даже если локальные timestamps новее
                     else if (!answersEqual(serverAnswer.answer, localAnswer.answer)) {
-                        // Сохраняем серверный ответ с другим ключом (добавляем суффикс)
-                        // Но для простоты просто обновляем, если серверный ответ имеет isCorrect, а локальный нет
-                        if (serverAnswer.isCorrect !== null && localAnswer.isCorrect === null) {
+                        // Добавляем серверный ответ, если:
+                        // 1. У серверного есть isCorrect, а у локального нет
+                        // 2. Или серверный ответ новее
+                        // 3. Или просто добавляем для разнообразия ответов
+                        const shouldAdd = serverAnswer.isCorrect !== null && localAnswer.isCorrect === null ||
+                                        serverTimestamp > localTimestamp ||
+                                        serverAnswer.isCorrect === true; // Всегда добавляем правильные ответы
+                        
+                        if (shouldAdd) {
                             await this.safeStorageSet({
                                 [`answer_${questionHash}`]: {
                                     answer: serverAnswer.answer,
@@ -2860,7 +2867,7 @@
                             skippedCount++;
                         }
                     }
-                    // Если локальный ответ новее или равен - пропускаем
+                    // Если это тот же ответ, но локальный новее - оставляем локальный
                     else {
                         skippedCount++;
                     }
@@ -2871,17 +2878,24 @@
                 // Дополнительное логирование для диагностики
                 if (mergedCount === 0 && serverAnswers.length > 0) {
                     console.warn(`[loadSavedAnswersFromServer] ⚠️ ВНИМАНИЕ: Все ${serverAnswers.length} ответов с сервера были пропущены!`);
-                    console.warn(`[loadSavedAnswersFromServer] Пример первого ответа:`, {
-                        questionHash: serverAnswers[0]?.questionHash,
-                        timestamp: serverAnswers[0]?.timestamp,
-                        isCorrect: serverAnswers[0]?.isCorrect
-                    });
-                    if (serverAnswers[0]?.questionHash) {
-                        const local = this.savedAnswers.get(serverAnswers[0].questionHash);
-                        console.warn(`[loadSavedAnswersFromServer] Локальный ответ для этого вопроса:`, local ? {
-                            timestamp: local.timestamp,
-                            isCorrect: local.isCorrect
-                        } : 'не найден');
+                    
+                    // Показываем детали первых 3 ответов для диагностики
+                    for (let i = 0; i < Math.min(3, serverAnswers.length); i++) {
+                        const serverAnswer = serverAnswers[i];
+                        if (!serverAnswer?.questionHash) continue;
+                        
+                        const local = this.savedAnswers.get(serverAnswer.questionHash);
+                        console.warn(`[loadSavedAnswersFromServer] Ответ #${i + 1}:`, {
+                            questionHash: serverAnswer.questionHash,
+                            serverTimestamp: serverAnswer.timestamp,
+                            serverIsCorrect: serverAnswer.isCorrect,
+                            serverAnswer: JSON.stringify(serverAnswer.answer).substring(0, 100),
+                            localExists: !!local,
+                            localTimestamp: local?.timestamp,
+                            localIsCorrect: local?.isCorrect,
+                            localAnswer: local ? JSON.stringify(local.answer).substring(0, 100) : 'нет',
+                            timestampDiff: local ? (serverAnswer.timestamp - local.timestamp) : 'N/A'
+                        });
                     }
                 }
             } catch (e) {

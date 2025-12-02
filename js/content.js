@@ -1019,6 +1019,8 @@
                     } catch (error) {
                         console.error('[Force Auto Scan] Ошибка при полном сканировании курсов:', error);
                     }
+                }
+                
                 // Если на текущей странице ничего не найдено, но сканирование активно, продолжаем сканирование всех курсов
                 // Это работает на любой странице, даже без ссылок
                 if (totalScanned === 0 && !currentUrl.includes('attempt.php') && scannedUrls.length > 0) {

@@ -3617,6 +3617,124 @@
             });
         }
 
+        addAnswerIcons() {
+            // Добавляем иконки правильности рядом с вариантами ответа
+            this.questions.forEach((question, id) => {
+                this.addIconsToQuestion(question);
+            });
+        }
+
+        addIconsToQuestion(question) {
+            if (!question || !question.element) return;
+            
+            // Только для вопросов с вариантами ответа
+            if (question.type !== 'multichoice' && question.type !== 'truefalse') return;
+            
+            // Получаем статистику для этого вопроса
+            const stats = question.statistics;
+            const savedAnswer = question.savedAnswer;
+            
+            if (!stats && !savedAnswer) return;
+            
+            // Находим все варианты ответа на странице
+            const inputs = question.element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+            
+            inputs.forEach(input => {
+                // Проверяем, не добавлена ли уже иконка
+                const label = question.element.querySelector(`label[for="${input.id}"]`) || 
+                             input.closest('label') || 
+                             input.parentElement;
+                
+                if (!label) return;
+                
+                // Проверяем, не добавлена ли уже иконка
+                if (label.querySelector('.quiz-solver-answer-icon')) return;
+                
+                // Получаем значение и текст варианта ответа
+                const value = input.value;
+                const text = label.innerText.replace(value, '').trim();
+                
+                // Проверяем правильность варианта ответа
+                let isCorrect = null;
+                let confidence = 0;
+                
+                // Метод 1: Проверяем сохраненный ответ
+                if (savedAnswer) {
+                    const savedAnswerData = typeof savedAnswer.answer === 'string' 
+                        ? JSON.parse(savedAnswer.answer) 
+                        : savedAnswer.answer;
+                    
+                    if (savedAnswerData) {
+                        // Проверяем совпадение по value или text
+                        if (savedAnswerData.value === value || 
+                            (savedAnswerData.text && savedAnswerData.text.trim() === text)) {
+                            isCorrect = savedAnswer.isCorrect;
+                            confidence = 100;
+                        }
+                    }
+                }
+                
+                // Метод 2: Проверяем статистику
+                if (isCorrect === null && stats && stats.answers) {
+                    // Ищем этот вариант ответа в статистике
+                    for (const [answerKey, count] of Object.entries(stats.answers)) {
+                        try {
+                            const answerData = JSON.parse(answerKey);
+                            if (answerData.value === value || 
+                                (answerData.text && answerData.text.trim() === text)) {
+                                // Если этот ответ встречается часто и есть правильные попытки,
+                                // то он скорее всего правильный
+                                const totalAttempts = stats.totalAttempts || 0;
+                                const correctAttempts = stats.correctAttempts || 0;
+                                const answerRatio = count / totalAttempts;
+                                
+                                // Если ответ встречается в более чем 50% попыток и есть правильные попытки,
+                                // считаем его правильным
+                                if (answerRatio > 0.5 && correctAttempts > 0) {
+                                    isCorrect = true;
+                                    confidence = Math.round(answerRatio * 100);
+                                } else if (answerRatio < 0.3 && totalAttempts > correctAttempts) {
+                                    // Если ответ встречается редко и есть неправильные попытки,
+                                    // возможно он неправильный
+                                    isCorrect = false;
+                                    confidence = Math.round((1 - answerRatio) * 100);
+                                }
+                                break;
+                            }
+                        } catch (e) {
+                            // Игнорируем ошибки парсинга
+                        }
+                    }
+                }
+                
+                // Добавляем иконку, если определили правильность
+                if (isCorrect !== null) {
+                    const icon = document.createElement('span');
+                    icon.className = 'quiz-solver-answer-icon';
+                    icon.style.cssText = `
+                        display: inline-block;
+                        margin-left: 8px;
+                        font-size: 16px;
+                        vertical-align: middle;
+                        line-height: 1;
+                    `;
+                    
+                    if (isCorrect) {
+                        icon.innerHTML = '✅';
+                        icon.title = `Правильный ответ (уверенность: ${confidence}%)`;
+                        icon.style.color = '#16a34a';
+                    } else {
+                        icon.innerHTML = '❌';
+                        icon.title = `Неправильный ответ (уверенность: ${confidence}%)`;
+                        icon.style.color = '#dc2626';
+                    }
+                    
+                    // Вставляем иконку после текста варианта ответа
+                    label.appendChild(icon);
+                }
+            });
+        }
+
         addButtonToQuestion(question) {
             if (question.element.querySelector('.quiz-solver-btn')) {
                 return;

@@ -1218,7 +1218,8 @@
                     await this.safeStorageSet({ 
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
-                        autoScanHeartbeat: null 
+                        autoScanHeartbeat: null,
+                        autoScanUrl: null
                     });
                 }
                 console.log('[Auto Force Scan] Страница attempt.php - автосканирование отключено (это страница прохождения теста)');

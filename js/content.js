@@ -3674,21 +3674,18 @@
             const stats = question.statistics;
             const savedAnswer = question.savedAnswer;
             
-            // Загружаем все сохраненные ответы с сервера, если есть
+            // Загружаем все сохраненные ответы с сервера через background script
+            // (чтобы избежать Mixed Content ошибок при запросах HTTP с HTTPS страниц)
             let serverAnswers = [];
             try {
-                const apiUrl = await this.safeStorageGet(['apiUrl']) || {};
-                const baseUrl = apiUrl.apiUrl || 'http://130.61.200.70:8080';
-                const response = await fetch(`${baseUrl}/api/get?questionHash=${question.hash}`, {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
+                const response = await this.safeSendMessage({
+                    action: 'syncWithServer',
+                    syncAction: 'getSavedAnswers',
+                    questionHash: question.hash
                 });
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success && data.answers) {
-                        serverAnswers = data.answers;
-                    }
+                if (response && response.success && response.answers) {
+                    serverAnswers = response.answers;
                 }
             } catch (e) {
                 // Игнорируем ошибки загрузки с сервера

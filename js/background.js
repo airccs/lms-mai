@@ -375,6 +375,7 @@ async function handleServerSync(request, sendResponse) {
             });
         } else if (syncAction === 'getSavedAnswers') {
             // Получаем сохраненные ответы других пользователей
+            // Используем правильный endpoint /api/answers/:questionHash
             response = await fetchWithTimeout(`${apiUrl}/api/answers/${questionHash}`, {
                 method: 'GET',
                 headers: headers
@@ -420,7 +421,17 @@ async function handleServerSync(request, sendResponse) {
                 console.log('[handleServerSync] Статистика найдена:', Object.keys(data.statistics).length, 'вопросов');
             }
             
-            sendResponse({ success: true, data: data });
+            // Для getSavedAnswers преобразуем формат ответа
+            if (syncAction === 'getSavedAnswers') {
+                // Сервер возвращает { answers: [...] }, преобразуем в формат, ожидаемый content script
+                sendResponse({ 
+                    success: true, 
+                    answers: data.answers || [],
+                    data: data 
+                });
+            } else {
+                sendResponse({ success: true, data: data });
+            }
         } else {
             const status = response?.status || 0;
             const statusText = response?.statusText || 'Unknown error';

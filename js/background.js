@@ -381,8 +381,8 @@ async function handleServerSync(request, sendResponse) {
                 headers: headers
             });
         } else if (syncAction === 'getAllSavedAnswers') {
-            // Получаем все сохраненные ответы для синхронизации
-            response = await fetchWithTimeout(`${apiUrl}/api/answers?limit=1000`, {
+            // Получаем все сохраненные ответы для синхронизации (без лимита - загружаем все)
+            response = await fetchWithTimeout(`${apiUrl}/api/answers`, {
                 method: 'GET',
                 headers: headers
             });

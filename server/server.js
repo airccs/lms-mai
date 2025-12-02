@@ -371,14 +371,27 @@ app.get('/api/answers/:questionHash', (req, res) => {
 // Get all saved answers (for synchronization)
 app.get('/api/answers', (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 1000; // По умолчанию 1000 записей
+    // Получаем общее количество записей
+    const totalCount = db.prepare('SELECT COUNT(*) as count FROM saved_answers').get().count;
+    
+    // Если запрошен лимит, используем его, иначе возвращаем все записи
+    const limit = req.query.limit ? parseInt(req.query.limit) : null;
     const offset = parseInt(req.query.offset) || 0;
 
-    const rows = db.prepare(`
-      SELECT * FROM saved_answers 
-      ORDER BY timestamp DESC
-      LIMIT ? OFFSET ?
-    `).all(limit, offset);
+    let rows;
+    if (limit) {
+      rows = db.prepare(`
+        SELECT * FROM saved_answers 
+        ORDER BY timestamp DESC
+        LIMIT ? OFFSET ?
+      `).all(limit, offset);
+    } else {
+      // Если лимит не указан, возвращаем все записи (но с предупреждением для больших объемов)
+      rows = db.prepare(`
+        SELECT * FROM saved_answers 
+        ORDER BY timestamp DESC
+      `).all();
+    }
 
     const answers = rows.map(row => ({
       questionHash: row.question_hash,
@@ -391,8 +404,9 @@ app.get('/api/answers', (req, res) => {
 
     res.json({ 
       answers,
-      total: rows.length,
-      hasMore: rows.length === limit
+      total: totalCount,
+      returned: rows.length,
+      hasMore: limit ? (offset + rows.length < totalCount) : false
     });
   } catch (error) {
     console.error('Error getting all answers:', error);

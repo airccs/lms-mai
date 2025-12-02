@@ -2753,10 +2753,12 @@
                 }
                 
                 const serverAnswers = response.answers || [];
-                console.log(`[loadSavedAnswersFromServer] Получено ${serverAnswers.length} ответов с сервера`);
+                const totalOnServer = response.total || serverAnswers.length;
+                console.log(`[loadSavedAnswersFromServer] Получено ${serverAnswers.length} ответов с сервера (всего на сервере: ${totalOnServer})`);
                 
                 // Объединяем данные с сервера с локальными
                 let mergedCount = 0;
+                let skippedCount = 0;
                 for (const serverAnswer of serverAnswers) {
                     const questionHash = serverAnswer.questionHash;
                     if (!questionHash) continue;
@@ -2786,10 +2788,12 @@
                         });
                         
                         mergedCount++;
+                    } else {
+                        skippedCount++;
                     }
                 }
                 
-                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера, всего: ${this.savedAnswers.size}`);
+                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера, пропущено ${skippedCount} (локальные новее), всего: ${this.savedAnswers.size}`);
             } catch (e) {
                 console.error('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера:', e);
             }

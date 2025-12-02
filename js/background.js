@@ -223,7 +223,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.storage.local.get(null, (allData) => {
             const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
             chrome.storage.local.remove(keysToRemove, () => {
-                sendResponse({ success: true });
+                // Устанавливаем флаг, чтобы предотвратить автоматическую загрузку данных с сервера
+                chrome.storage.local.set({ 
+                    dataCleared: true,
+                    dataClearedTimestamp: Date.now()
+                }, () => {
+                    sendResponse({ success: true });
+                });
             });
         });
         return true;

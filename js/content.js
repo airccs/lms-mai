@@ -1892,6 +1892,30 @@
 
         async loadSavedAnswers() {
             try {
+                // Проверяем, не была ли выполнена очистка данных
+                const clearState = await this.safeStorageGet(['dataCleared', 'dataClearedTimestamp']);
+                if (clearState.dataCleared) {
+                    const clearTime = clearState.dataClearedTimestamp || 0;
+                    const timeSinceClear = Date.now() - clearTime;
+                    // Если прошло менее 5 минут с момента очистки, не загружаем данные с сервера
+                    if (timeSinceClear < 5 * 60 * 1000) {
+                        console.log('[loadSavedAnswers] Данные были очищены недавно, пропускаю загрузку с сервера');
+                        // Сбрасываем флаг через 5 минут
+                        setTimeout(async () => {
+                            await this.safeStorageSet({ 
+                                dataCleared: false,
+                                dataClearedTimestamp: null
+                            });
+                        }, 5 * 60 * 1000 - timeSinceClear);
+                    } else {
+                        // Сбрасываем флаг, если прошло достаточно времени
+                        await this.safeStorageSet({ 
+                            dataCleared: false,
+                            dataClearedTimestamp: null
+                        });
+                    }
+                }
+                
                 const result = await this.safeStorageGet(null);
                 if (!result) {
                     return;
@@ -3096,10 +3120,25 @@
                     if (serverAnswers && serverAnswers.length > 0) {
                         console.log(`[Method 1] Найдено ${serverAnswers.length} ответов с сервера`);
                         
+                        // Проверяем, не была ли выполнена очистка данных
+                        const clearState = await this.safeStorageGet(['dataCleared', 'dataClearedTimestamp']);
+                        const shouldSaveToLocal = !clearState.dataCleared || 
+                            (clearState.dataClearedTimestamp && (Date.now() - clearState.dataClearedTimestamp) >= 5 * 60 * 1000);
+                        
                         // Ищем правильный ответ (isCorrect === true)
                         const correctAnswer = serverAnswers.find(a => a.isCorrect === true);
                         if (correctAnswer && correctAnswer.answer) {
                             if (this.applySavedAnswer(question, correctAnswer.answer)) {
+                                // Сохраняем ответ локально только если не была выполнена очистка
+                                if (shouldSaveToLocal) {
+                                    await this.saveAnswer(
+                                        question.hash,
+                                        correctAnswer.answer,
+                                        correctAnswer.isCorrect,
+                                        correctAnswer.questionText,
+                                        correctAnswer.questionImage
+                                    );
+                                }
                                 methods.push('Сохраненные ответы (с сервера)');
                                 this.showNotification('✅ Применен ответ другого пользователя!', 'success');
                                 button.innerHTML = '✅ Ответ применен';
@@ -3112,6 +3151,16 @@
                         // Если правильного ответа нет, используем первый доступный
                         if (serverAnswers[0].answer) {
                             if (this.applySavedAnswer(question, serverAnswers[0].answer)) {
+                                // Сохраняем ответ локально только если не была выполнена очистка
+                                if (shouldSaveToLocal) {
+                                    await this.saveAnswer(
+                                        question.hash,
+                                        serverAnswers[0].answer,
+                                        serverAnswers[0].isCorrect,
+                                        serverAnswers[0].questionText,
+                                        serverAnswers[0].questionImage
+                                    );
+                                }
                                 methods.push('Сохраненные ответы (с сервера)');
                                 this.showNotification('✅ Применен ответ другого пользователя!', 'success');
                                 button.innerHTML = '✅ Ответ применен';

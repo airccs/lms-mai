@@ -455,11 +455,12 @@
             }
 
             // Устанавливаем флаг сканирования в storage для координации между страницами
-            // Также сохраняем heartbeat для проверки активности
+            // Также сохраняем heartbeat для проверки активности и URL страницы
             await this.safeStorageSet({ 
                 autoScanInProgress: true, 
                 autoScanStartTime: Date.now(),
-                autoScanHeartbeat: Date.now() // Время последнего обновления
+                autoScanHeartbeat: Date.now(), // Время последнего обновления
+                autoScanUrl: window.location.href // URL страницы, где запущено сканирование
             });
             
             this.isForceScanning = true;
@@ -634,7 +635,8 @@
                 await this.safeStorageSet({ 
                     autoScanInProgress: false, 
                     autoScanStartTime: null,
-                    autoScanHeartbeat: null 
+                    autoScanHeartbeat: null,
+                    autoScanUrl: null
                 });
                 console.log('[Force Auto Scan] Флаги сканирования сброшены');
             }
@@ -1224,28 +1226,42 @@
             }
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat', 'lastScanTime']) || {};
+            const currentUrl = window.location.href;
+            const scanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat', 'lastScanTime', 'autoScanUrl']) || {};
             if (scanState.autoScanInProgress) {
                 const startTime = scanState.autoScanStartTime || Date.now();
                 const lastHeartbeat = scanState.autoScanHeartbeat || startTime;
                 const elapsed = Date.now() - startTime;
                 const heartbeatElapsed = Date.now() - lastHeartbeat;
+                const scanUrl = scanState.autoScanUrl;
                 
-                // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
-                const MAX_HEARTBEAT_INTERVAL = 20000; // 20 секунд (уменьшено с 30)
-                // Если сканирование идет больше 2 минут, считаем его зависшим
-                const MAX_SCAN_DURATION = 120000; // 2 минуты
-                
-                if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
+                // Если сканирование было запущено на другой странице, разрешаем запуск нового
+                if (scanUrl && scanUrl !== currentUrl) {
+                    console.log(`[Auto Force Scan] Сканирование было запущено на другой странице (${scanUrl}), разрешаю запуск нового на текущей странице`);
+                    await this.safeStorageSet({ 
+                        autoScanInProgress: false, 
+                        autoScanStartTime: null,
+                        autoScanHeartbeat: null,
+                        autoScanUrl: null
+                    });
+                    // Продолжаем выполнение, чтобы запустить новое сканирование
+                } else if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {
+                    // Если heartbeat не обновлялся более 20 секунд, считаем сканирование зависшим
+                    const MAX_HEARTBEAT_INTERVAL = 20000; // 20 секунд (уменьшено с 30)
+                    // Если сканирование идет больше 2 минут, считаем его зависшим
+                    const MAX_SCAN_DURATION = 120000; // 2 минуты
+                    
                     console.log(`[Auto Force Scan] Обнаружено зависшее сканирование (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), сбрасываю...`);
                     await this.safeStorageSet({ 
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
                         autoScanHeartbeat: null,
+                        autoScanUrl: null,
                         lastScanTime: null // Сбрасываем lastScanTime при зависшем сканировании
                     });
                     // Продолжаем выполнение, чтобы запустить новое сканирование
                 } else {
+                    const MAX_HEARTBEAT_INTERVAL = 20000; // 20 секунд
                     console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), пропускаю...`);
                     console.log(`[Auto Force Scan] ⚠️ Если данные не появляются в "Сохраненные данные", возможно сканирование было прервано. Подождите ${Math.ceil((MAX_HEARTBEAT_INTERVAL - heartbeatElapsed) / 1000)} сек или перезагрузите страницу.`);
                     return;

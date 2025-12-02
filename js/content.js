@@ -463,18 +463,73 @@
             document.body.appendChild(forceScanBtn);
         }
 
+        // Функции для работы с отслеживанием прогресса сканирования
+        async markUrlAsScanned(url) {
+            // Нормализуем URL (убираем параметры, которые не влияют на содержимое)
+            const normalizedUrl = this.normalizeUrl(url);
+            const scanState = await this.safeStorageGet(['scannedUrls']) || {};
+            const scannedUrls = scanState.scannedUrls || new Set();
+            if (!(scannedUrls instanceof Set)) {
+                // Конвертируем массив в Set, если это массив
+                scannedUrls = new Set(Array.isArray(scannedUrls) ? scannedUrls : []);
+            }
+            scannedUrls.add(normalizedUrl);
+            // Сохраняем как массив, так как Set не сериализуется в JSON
+            await this.safeStorageSet({ scannedUrls: Array.from(scannedUrls) });
+            console.log(`[Force Auto Scan] URL отмечен как отсканированный: ${normalizedUrl}`);
+        }
+
+        async isUrlScanned(url) {
+            const normalizedUrl = this.normalizeUrl(url);
+            const scanState = await this.safeStorageGet(['scannedUrls']) || {};
+            const scannedUrls = scanState.scannedUrls || [];
+            return scannedUrls.includes(normalizedUrl);
+        }
+
+        normalizeUrl(url) {
+            // Нормализуем URL: убираем параметры, которые не влияют на содержимое страницы
+            try {
+                const urlObj = new URL(url);
+                // Оставляем только важные параметры (attempt, cmid, id)
+                const importantParams = ['attempt', 'cmid', 'id'];
+                const newParams = new URLSearchParams();
+                for (const param of importantParams) {
+                    if (urlObj.searchParams.has(param)) {
+                        newParams.set(param, urlObj.searchParams.get(param));
+                    }
+                }
+                // Собираем нормализованный URL
+                const normalized = `${urlObj.origin}${urlObj.pathname}`;
+                if (newParams.toString()) {
+                    return `${normalized}?${newParams.toString()}`;
+                }
+                return normalized;
+            } catch (e) {
+                // Если не удалось распарсить URL, возвращаем как есть
+                return url;
+            }
+        }
+
         async forceAutoScan() {
             // Принудительное автосканирование без открытия вкладок
             // Использует ту же логику, что и auto-scan.js, но через fetch
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await this.safeStorageGet(['autoScanInProgress']) || {};
+            const scanState = await this.safeStorageGet(['autoScanInProgress', 'scannedUrls']) || {};
+            
+            // Если сканирование уже выполняется, проверяем, можем ли мы продолжить
             if (scanState.autoScanInProgress) {
-                console.log('[Force Auto Scan] Сканирование уже выполняется в фоне');
-                return;
+                const scannedUrls = scanState.scannedUrls || [];
+                if (scannedUrls.length > 0) {
+                    console.log(`[Force Auto Scan] Сканирование уже выполняется в фоне (отсканировано ${scannedUrls.length} URL), продолжаю с места остановки...`);
+                    // Не возвращаемся, продолжаем сканирование с места остановки
+                } else {
+                    console.log('[Force Auto Scan] Сканирование уже выполняется в фоне, но нет прогресса, жду...');
+                    // Если нет прогресса, возможно сканирование только началось, продолжаем
+                }
             }
             
-            if (this.isForceScanning) {
+            if (this.isForceScanning && scanState.autoScanInProgress) {
                 console.log('[Force Auto Scan] Сканирование уже выполняется локально');
                 return;
             }
@@ -483,7 +538,7 @@
             // Также сохраняем heartbeat для проверки активности и URL страницы
             await this.safeStorageSet({ 
                 autoScanInProgress: true, 
-                autoScanStartTime: Date.now(),
+                autoScanStartTime: scanState.autoScanStartTime || Date.now(),
                 autoScanHeartbeat: Date.now(), // Время последнего обновления
                 autoScanUrl: window.location.href // URL страницы, где запущено сканирование
             });
@@ -493,11 +548,14 @@
             this.showNotification('Начинаю принудительное автосканирование...', 'info');
             
             // Устанавливаем интервал для обновления heartbeat каждые 10 секунд
-            const heartbeatInterval = setInterval(async () => {
+            let heartbeatInterval = null;
+            heartbeatInterval = setInterval(async () => {
                 if (this.isForceScanning) {
                     await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
                 } else {
-                    clearInterval(heartbeatInterval);
+                    if (heartbeatInterval) {
+                        clearInterval(heartbeatInterval);
+                    }
                 }
             }, 10000);
 
@@ -553,6 +611,12 @@
                             
                             // Сканируем все найденные результаты
                             for (const reviewLink of reviewLinks) {
+                                // Проверяем, не был ли уже отсканирован этот URL
+                                if (await this.isUrlScanned(reviewLink)) {
+                                    console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                    continue;
+                                }
+                                
                                 // Обновляем heartbeat перед каждым сканированием
                                 if (this.isForceScanning) {
                                     await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
@@ -563,6 +627,8 @@
                                     totalScanned++;
                                     totalFound += result.questions;
                                     totalSaved += result.saved;
+                                    // Отмечаем URL как отсканированный
+                                    await this.markUrlAsScanned(reviewLink);
                                 } catch (error) {
                                     console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
                                 }
@@ -582,6 +648,12 @@
                 }
                 
                 for (const link of directReviewLinks) {
+                    // Проверяем, не был ли уже отсканирован этот URL
+                    if (await this.isUrlScanned(link)) {
+                        console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${link}`);
+                        continue;
+                    }
+                    
                     // Обновляем heartbeat перед каждым сканированием
                     if (this.isForceScanning) {
                         await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
@@ -592,6 +664,8 @@
                         totalScanned++;
                         totalFound += result.questions;
                         totalSaved += result.saved;
+                        // Отмечаем URL как отсканированный
+                        await this.markUrlAsScanned(link);
                     } catch (error) {
                         console.error(`[Force Auto Scan] Ошибка при сканировании ${link}:`, error);
                     }
@@ -612,6 +686,12 @@
                     console.log(`[Force Auto Scan] В тесте найдено ${reviewLinks.length} ссылок на результаты`);
                     
                     for (const reviewLink of reviewLinks) {
+                        // Проверяем, не был ли уже отсканирован этот URL
+                        if (await this.isUrlScanned(reviewLink)) {
+                            console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                            continue;
+                        }
+                        
                         // Обновляем heartbeat перед каждым сканированием
                         if (this.isForceScanning) {
                             await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
@@ -622,6 +702,8 @@
                             totalScanned++;
                             totalFound += result.questions;
                             totalSaved += result.saved;
+                            // Отмечаем URL как отсканированный
+                            await this.markUrlAsScanned(reviewLink);
                         } catch (error) {
                             console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
                         }
@@ -636,13 +718,20 @@
                     const reviewLink = this.findReviewLinkFromAttempt(currentUrl);
                     if (reviewLink) {
                         console.log(`[Force Auto Scan] Найдена ссылка на review: ${reviewLink}`);
-                        try {
-                            const result = await this.scanReviewPageWithFetch(reviewLink);
-                            totalScanned++;
-                            totalFound += result.questions;
-                            totalSaved += result.saved;
-                        } catch (error) {
-                            console.error(`[Force Auto Scan] Ошибка при сканировании review:`, error);
+                        // Проверяем, не был ли уже отсканирован этот URL
+                        if (!(await this.isUrlScanned(reviewLink))) {
+                            try {
+                                const result = await this.scanReviewPageWithFetch(reviewLink);
+                                totalScanned++;
+                                totalFound += result.questions;
+                                totalSaved += result.saved;
+                                // Отмечаем URL как отсканированный
+                                await this.markUrlAsScanned(reviewLink);
+                            } catch (error) {
+                                console.error(`[Force Auto Scan] Ошибка при сканировании review:`, error);
+                            }
+                        } else {
+                            console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
                         }
                     } else {
                         console.log('[Force Auto Scan] Ссылка на review не найдена на странице attempt.php');
@@ -704,6 +793,12 @@
                                 
                                 // Сканируем все найденные результаты
                                 for (const reviewLink of reviewLinks) {
+                                    // Проверяем, не был ли уже отсканирован этот URL
+                                    if (await this.isUrlScanned(reviewLink)) {
+                                        console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                        continue;
+                                    }
+                                    
                                     // Обновляем heartbeat перед каждым сканированием
                                     if (this.isForceScanning) {
                                         await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
@@ -714,6 +809,8 @@
                                         totalScanned++;
                                         totalFound += result.questions;
                                         totalSaved += result.saved;
+                                        // Отмечаем URL как отсканированный
+                                        await this.markUrlAsScanned(reviewLink);
                                     } catch (error) {
                                         console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
                                     }
@@ -744,6 +841,7 @@
                     autoScanUrl: null
                 });
                 console.log('[Force Auto Scan] Флаги сканирования сброшены');
+                clearInterval(heartbeatInterval);
             }
         }
 
@@ -1316,10 +1414,18 @@
                         let totalSaved = 0;
                         
                         for (const reviewLink of reviewLinks) {
+                            // Проверяем, не был ли уже отсканирован этот URL
+                            if (await this.isUrlScanned(reviewLink)) {
+                                console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
+                                continue;
+                            }
+                            
                             try {
                                 const result = await this.scanReviewPageWithFetch(reviewLink);
                                 totalQuestions += result.questions;
                                 totalSaved += result.saved;
+                                // Отмечаем URL как отсканированный
+                                await this.markUrlAsScanned(reviewLink);
                             } catch (e) {
                                 console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, e);
                             }
@@ -1431,13 +1537,30 @@
             
             console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
 
+            // Проверяем, было ли уже выполнено сканирование (проверяем scannedUrls)
+            const scanProgress = await this.safeStorageGet(['scannedUrls', 'lastScanTime', 'dataCleared']) || {};
+            const scannedUrls = scanProgress.scannedUrls || [];
+            
+            // Если данные были очищены, очищаем scannedUrls и разрешаем новое сканирование
+            if (scanProgress.dataCleared) {
+                console.log('[Auto Force Scan] Данные были очищены, очищаю scannedUrls для нового сканирования');
+                await this.safeStorageSet({ scannedUrls: [] });
+            }
+            
+            // Если уже есть отсканированные URL, значит сканирование уже выполнялось
+            // Запускаем только если scannedUrls пуст или был сброс
+            if (scannedUrls.length > 0 && !scanProgress.dataCleared) {
+                console.log(`[Auto Force Scan] Сканирование уже было выполнено (отсканировано ${scannedUrls.length} URL), не запускаю повторно`);
+                console.log('[Auto Force Scan] Для нового сканирования очистите "Сохраненные данные"');
+                return;
+            }
+            
             // Защита от слишком частых запусков
-            const scanHistory = await this.safeStorageGet(['lastScanTime', 'dataCleared']) || {};
-            let lastScanTime = scanHistory.lastScanTime || 0;
+            let lastScanTime = scanProgress.lastScanTime || 0;
             const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
             
             // Если данные были очищены, сбрасываем lastScanTime, чтобы разрешить немедленный запуск
-            if (scanHistory.dataCleared) {
+            if (scanProgress.dataCleared) {
                 console.log('[Auto Force Scan] Данные были очищены, сбрасываю lastScanTime для немедленного запуска');
                 lastScanTime = 0;
             }

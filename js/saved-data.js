@@ -181,10 +181,14 @@ function clearAllData() {
         }
         
         if (response && response.success) {
-            loadData();
-            alert('Все данные удалены');
+            console.log(`[Saved Data] Очищено ${response.cleared || 0} записей`);
+            // Небольшая задержка перед перезагрузкой данных, чтобы убедиться, что удаление завершено
+            setTimeout(() => {
+                loadData();
+            }, 100);
+            alert(`Все данные удалены (${response.cleared || 0} записей)`);
         } else {
-            alert('Ошибка при удалении данных');
+            alert('Ошибка при удалении данных: ' + (response?.error || 'Unknown error'));
         }
     });
 }

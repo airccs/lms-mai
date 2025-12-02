@@ -164,6 +164,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.storage.local.get(null, (localData) => {
             console.log('[Background] Local data получен:', Object.keys(localData).length, 'ключей');
             
+            // Проверяем флаг очистки данных
+            const dataCleared = localData.dataCleared;
+            const dataClearedTimestamp = localData.dataClearedTimestamp;
+            
+            if (dataCleared) {
+                const timeSinceClear = Date.now() - (dataClearedTimestamp || 0);
+                if (timeSinceClear < 5 * 60 * 1000) {
+                    console.log(`[Background] Данные были очищены ${Math.floor(timeSinceClear / 1000)} сек назад, возвращаю пустой список`);
+                    sendResponse({ success: true, data: [], dataCleared: true });
+                    return;
+                } else {
+                    // Сбрасываем флаг, если прошло достаточно времени
+                    chrome.storage.local.set({ 
+                        dataCleared: false,
+                        dataClearedTimestamp: null
+                    });
+                }
+            }
+            
             const savedAnswers = [];
             const statistics = {};
             

@@ -264,14 +264,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Кнопка очистки данных (только в dev режиме)
     const clearAllBtn = document.getElementById('clear-all-btn');
     if (clearAllBtn) {
-        if (IS_DEV_MODE) {
-            clearAllBtn.addEventListener('click', () => {
-                clearAllData();
-            });
-        } else {
-            // Скрываем кнопку в production
-            clearAllBtn.style.display = 'none';
-        }
+        // Кнопка очистки доступна всегда (очищает только локальные данные)
+        clearAllBtn.addEventListener('click', () => {
+            clearAllData();
+        });
     }
 
     // Кнопка автосканирования

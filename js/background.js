@@ -219,25 +219,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    if (IS_DEV_MODE && request.action === 'clearAllSavedAnswers') {
+    // Очистка всех сохраненных данных разрешена всегда (только локальные данные)
+    if (request.action === 'clearAllSavedAnswers') {
         chrome.storage.local.get(null, (allData) => {
             const keysToRemove = Object.keys(allData).filter(key => key.startsWith('answer_'));
+            console.log(`[Background] Очистка данных: удаление ${keysToRemove.length} ключей`);
             chrome.storage.local.remove(keysToRemove, () => {
                 // Устанавливаем флаг, чтобы предотвратить автоматическую загрузку данных с сервера
                 chrome.storage.local.set({ 
                     dataCleared: true,
                     dataClearedTimestamp: Date.now()
                 }, () => {
-                    sendResponse({ success: true });
+                    console.log('[Background] Данные очищены, флаг dataCleared установлен');
+                    sendResponse({ success: true, cleared: keysToRemove.length });
                 });
             });
         });
         return true;
     }
     
-    // В production режиме возвращаем ошибку при попытке удаления
-    if (!IS_DEV_MODE && (request.action === 'deleteSavedAnswer' || request.action === 'clearAllSavedAnswers')) {
-        sendResponse({ success: false, error: 'Удаление данных отключено в production версии' });
+    // В production режиме возвращаем ошибку при попытке удаления отдельной записи
+    if (!IS_DEV_MODE && request.action === 'deleteSavedAnswer') {
+        sendResponse({ success: false, error: 'Удаление отдельных записей отключено в production версии' });
         return true;
     }
 });

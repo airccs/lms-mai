@@ -3684,30 +3684,16 @@
                 let correctCount = 0;
                 let incorrectCount = 0;
                 
-                // Функция для проверки совпадения ответов (простое точное сравнение)
+                // Функция для проверки совпадения ответов (только точное сравнение)
                 const isAnswerMatch = (answerData, currentValue, currentText) => {
                     // Точное совпадение по value (самый надежный способ)
                     if (answerData.value && answerData.value === currentValue) {
                         return true;
                     }
                     
-                    // Точное совпадение по тексту (без нормализации)
+                    // Точное совпадение по тексту (без нормализации, без частичного совпадения)
                     if (answerData.text && answerData.text.trim() === currentText.trim()) {
                         return true;
-                    }
-                    
-                    // Проверка по части текста (если текст содержит value или наоборот)
-                    if (answerData.text && currentText) {
-                        const savedText = answerData.text.trim();
-                        const currentTextTrimmed = currentText.trim();
-                        
-                        // Если один текст содержит другой (для случаев, когда текст немного отличается)
-                        if (savedText.includes(currentTextTrimmed) || currentTextTrimmed.includes(savedText)) {
-                            // Но только если это не слишком короткие строки (чтобы избежать ложных срабатываний)
-                            if (savedText.length > 3 && currentTextTrimmed.length > 3) {
-                                return true;
-                            }
-                        }
                     }
                     
                     return false;

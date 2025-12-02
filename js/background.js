@@ -168,28 +168,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const dataCleared = localData.dataCleared;
             const dataClearedTimestamp = localData.dataClearedTimestamp;
             
-            if (dataCleared) {
-                const timeSinceClear = Date.now() - (dataClearedTimestamp || 0);
-                if (timeSinceClear < 5 * 60 * 1000) {
-                    console.log(`[Background] Данные были очищены ${Math.floor(timeSinceClear / 1000)} сек назад, возвращаю пустой список`);
-                    sendResponse({ success: true, data: [], dataCleared: true });
-                    return;
-                } else {
-                    // Сбрасываем флаг, если прошло достаточно времени
-                    chrome.storage.local.set({ 
-                        dataCleared: false,
-                        dataClearedTimestamp: null
-                    });
-                }
-            }
-            
             const savedAnswers = [];
             const statistics = {};
+            const clearTimestamp = dataClearedTimestamp || 0;
             
             // Извлекаем ответы и статистику из local storage
             for (const [key, value] of Object.entries(localData)) {
                 if (key.startsWith('answer_')) {
                     const hash = key.replace('answer_', '');
+                    const answerTimestamp = value.timestamp || 0;
+                    
+                    // Если данные были очищены, показываем только те, что были сохранены ПОСЛЕ очистки
+                    if (dataCleared && answerTimestamp <= clearTimestamp) {
+                        continue; // Пропускаем данные, сохраненные до очистки
+                    }
+                    
                     savedAnswers.push({
                         hash: hash,
                         answer: value.answer,
@@ -203,6 +196,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 } else if (key.startsWith('stats_')) {
                     const hash = key.replace('stats_', '');
                     statistics[hash] = value;
+                }
+            }
+            
+            // Если данные были очищены и прошло достаточно времени, сбрасываем флаг
+            if (dataCleared) {
+                const timeSinceClear = Date.now() - clearTimestamp;
+                if (timeSinceClear >= 5 * 60 * 1000) {
+                    chrome.storage.local.set({ 
+                        dataCleared: false,
+                        dataClearedTimestamp: null
+                    });
                 }
             }
 

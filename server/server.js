@@ -196,6 +196,19 @@ app.post('/api/save', (req, res) => {
       return res.status(400).json({ error: 'Question hash required' });
     }
 
+    // Логируем размер данных для диагностики
+    const imageSize = questionImage ? questionImage.length : 0;
+    const textSize = questionText ? questionText.length : 0;
+    console.log(`[POST /api/save] questionHash: ${questionHash}, imageSize: ${imageSize}, textSize: ${textSize}`);
+
+    // Ограничиваем размер изображения (максимум 1MB в base64)
+    if (questionImage && questionImage.length > 1024 * 1024) {
+      console.warn(`[POST /api/save] Изображение слишком большое (${questionImage.length} байт), обрезаю`);
+      // Обрезаем изображение до 1MB
+      const truncatedImage = questionImage.substring(0, 1024 * 1024);
+      questionImage = truncatedImage;
+    }
+
     // Check if answer already exists
     const existingAnswer = db.prepare(`
       SELECT * FROM saved_answers 
@@ -255,8 +268,9 @@ app.post('/api/save', (req, res) => {
 
     res.json({ success: true, answers });
   } catch (error) {
-    console.error('Error saving answer:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[POST /api/save] Error saving answer:', error);
+    console.error('[POST /api/save] Error stack:', error.stack);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 

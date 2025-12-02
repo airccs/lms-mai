@@ -3,6 +3,7 @@
    "name": "LMS MAI Quiz Solver",
    "version": "2.0.0",
    "description": "Помогает решать тесты в Moodle LMS",
+   "default_locale": "ru",
    "permissions": [
       "storage",
       "activeTab",

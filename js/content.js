@@ -4697,6 +4697,7 @@
             // Отправляем запросы последовательно
             for (const request of batch) {
                 try {
+                    console.log(`[processSyncQueue] Отправка ${request.syncAction} для questionHash: ${request.questionHash}`);
                     const response = await this.safeSendMessage({
                         action: 'syncWithServer',
                         ...request
@@ -4705,6 +4706,7 @@
                     this.lastSyncTime = Date.now();
 
                     if (response && response.success) {
+                        console.log(`[processSyncQueue] ✅ Успешно синхронизировано: ${request.syncAction} для ${request.questionHash}`);
                         if (request.syncAction === 'submitAnswer' && response.data) {
                             // Обновляем статистику с сервера
                             const serverStats = response.data.statistics;
@@ -4713,12 +4715,13 @@
                             }
                         }
                     } else if (response && response.error) {
+                        console.error(`[processSyncQueue] ❌ Ошибка синхронизации ${request.syncAction}:`, response.error);
                         this.handleServerError(response.error, response.statusCode);
                         // Прерываем обработку очереди при ошибке
                         break;
                     }
                 } catch (error) {
-                    console.warn('[processSyncQueue] Ошибка при синхронизации:', error);
+                    console.error(`[processSyncQueue] ❌ Исключение при синхронизации ${request.syncAction}:`, error);
                     this.handleServerError(error.message, error.statusCode);
                     // Прерываем обработку очереди при ошибке
                     break;

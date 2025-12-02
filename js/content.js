@@ -1243,8 +1243,10 @@
                         autoScanStartTime: null,
                         autoScanHeartbeat: null 
                     });
+                    // Продолжаем выполнение, чтобы запустить новое сканирование
                 } else {
                     console.log(`[Auto Force Scan] Сканирование уже выполняется в фоне (запущено ${Math.floor(elapsed / 1000)} сек назад, heartbeat ${Math.floor(heartbeatElapsed / 1000)} сек назад), пропускаю...`);
+                    console.log(`[Auto Force Scan] ⚠️ Если данные не появляются в "Сохраненные данные", возможно сканирование было прервано. Подождите ${Math.ceil((MAX_HEARTBEAT_INTERVAL - heartbeatElapsed) / 1000)} сек или перезагрузите страницу.`);
                     return;
                 }
             }
@@ -2008,9 +2010,6 @@
                 // Проверяем, есть ли уже сохраненный ответ
                 const existingKey = `answer_${questionHash}`;
                 const existing = await this.safeStorageGet([existingKey]);
-                if (!existing) {
-                    return false;
-                }
                 const existingData = existing[existingKey];
                 
                 // Если ответ уже есть, обновляем только если новый статус более точный
@@ -2028,6 +2027,9 @@
                                existingData.questionImage && !questionImage) {
                         shouldUpdate = false; // Не теряем текст вопроса и изображение
                     }
+                } else {
+                    // Если данных нет, всегда сохраняем (новый ответ)
+                    shouldUpdate = true;
                 }
 
                 if (shouldUpdate) {
@@ -2045,6 +2047,7 @@
                         [existingKey]: answerData
                     });
                     if (!saved) {
+                        console.warn(`[Save] Не удалось сохранить данные для ${questionHash}`);
                         return false;
                     }
                     

@@ -1224,7 +1224,7 @@
             }
             
             // Проверяем, не идет ли уже сканирование (в фоне или на другой странице)
-            const scanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat']) || {};
+            const scanState = await this.safeStorageGet(['autoScanInProgress', 'autoScanStartTime', 'autoScanHeartbeat', 'lastScanTime']) || {};
             if (scanState.autoScanInProgress) {
                 const startTime = scanState.autoScanStartTime || Date.now();
                 const lastHeartbeat = scanState.autoScanHeartbeat || startTime;
@@ -1241,7 +1241,8 @@
                     await this.safeStorageSet({ 
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
-                        autoScanHeartbeat: null 
+                        autoScanHeartbeat: null,
+                        lastScanTime: null // Сбрасываем lastScanTime при зависшем сканировании
                     });
                     // Продолжаем выполнение, чтобы запустить новое сканирование
                 } else {
@@ -1249,14 +1250,31 @@
                     console.log(`[Auto Force Scan] ⚠️ Если данные не появляются в "Сохраненные данные", возможно сканирование было прервано. Подождите ${Math.ceil((MAX_HEARTBEAT_INTERVAL - heartbeatElapsed) / 1000)} сек или перезагрузите страницу.`);
                     return;
                 }
+            } else {
+                // Если сканирование не выполняется, но lastScanTime установлен и прошло много времени,
+                // сбрасываем его, чтобы разрешить новое сканирование
+                if (scanState.lastScanTime) {
+                    const timeSinceLastScan = Date.now() - scanState.lastScanTime;
+                    // Если прошло более 5 минут с последнего сканирования, сбрасываем lastScanTime
+                    if (timeSinceLastScan > 5 * 60 * 1000) {
+                        console.log(`[Auto Force Scan] Последнее сканирование было ${Math.floor(timeSinceLastScan / 1000)} сек назад, сбрасываю lastScanTime`);
+                        await this.safeStorageSet({ lastScanTime: null });
+                    }
+                }
             }
             
             console.log('%c[Auto Force Scan] ✓ Автоматическое сканирование активировано', 'color: #16a34a; font-weight: bold;');
 
             // Защита от слишком частых запусков
-            const scanHistory = await this.safeStorageGet(['lastScanTime']) || {};
+            const scanHistory = await this.safeStorageGet(['lastScanTime', 'dataCleared']) || {};
             let lastScanTime = scanHistory.lastScanTime || 0;
             const MIN_SCAN_INTERVAL = 30000; // Минимум 30 секунд между запусками
+            
+            // Если данные были очищены, сбрасываем lastScanTime, чтобы разрешить немедленный запуск
+            if (scanHistory.dataCleared) {
+                console.log('[Auto Force Scan] Данные были очищены, сбрасываю lastScanTime для немедленного запуска');
+                lastScanTime = 0;
+            }
 
             // Запускаем сканирование с задержкой после загрузки страницы
             let scanTimeout = null;

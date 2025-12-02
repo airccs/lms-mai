@@ -245,11 +245,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             console.log(`[Background] Очистка данных: удаление ${keysToRemove.length} ключей`);
             chrome.storage.local.remove(keysToRemove, () => {
                 // Устанавливаем флаг, чтобы предотвратить автоматическую загрузку данных с сервера
+                // Также сбрасываем lastScanTime, чтобы разрешить немедленный запуск сканирования
                 chrome.storage.local.set({ 
                     dataCleared: true,
-                    dataClearedTimestamp: Date.now()
+                    dataClearedTimestamp: Date.now(),
+                    lastScanTime: null // Сбрасываем lastScanTime при очистке данных
                 }, () => {
-                    console.log('[Background] Данные очищены, флаг dataCleared установлен');
+                    console.log('[Background] Данные очищены, флаг dataCleared установлен, lastScanTime сброшен');
                     sendResponse({ success: true, cleared: keysToRemove.length });
                 });
             });

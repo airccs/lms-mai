@@ -427,12 +427,21 @@ async function handleServerSync(request, sendResponse) {
                 console.log('[handleServerSync] Статистика найдена:', Object.keys(data.statistics).length, 'вопросов');
             }
             
-            // Для getSavedAnswers преобразуем формат ответа
+            // Для getSavedAnswers и getAllSavedAnswers преобразуем формат ответа
             if (syncAction === 'getSavedAnswers') {
                 // Сервер возвращает { answers: [...] }, преобразуем в формат, ожидаемый content script
                 sendResponse({ 
                     success: true, 
                     answers: data.answers || [],
+                    data: data 
+                });
+            } else if (syncAction === 'getAllSavedAnswers') {
+                // Для getAllSavedAnswers возвращаем все ответы
+                sendResponse({ 
+                    success: true, 
+                    answers: data.answers || [],
+                    total: data.total || 0,
+                    hasMore: data.hasMore || false,
                     data: data 
                 });
             } else {

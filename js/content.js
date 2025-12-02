@@ -629,46 +629,21 @@
                     console.log('[Force Auto Scan] На текущей странице нет ссылок, запускаю полное сканирование всех курсов...');
                     this.showNotification('Запускаю полное сканирование всех курсов...', 'info');
                     
-                    // Переходим к сканированию всех курсов с главной страницы
+                    // Переходим к сканированию всех курсов
                     try {
-                        const mainPageUrl = 'https://lms.mai.ru/';
-                        const courseLinks = await this.findCoursesOnPage();
+                        // Сначала ищем курсы на текущей странице
+                        let courseLinks = await this.findCoursesOnPage();
+                        console.log(`[Force Auto Scan] На текущей странице найдено ${courseLinks.length} курсов`);
                         
-                        // Если на текущей странице нет курсов, загружаем главную страницу
-                        let coursesToScan = courseLinks;
-                        if (coursesToScan.length === 0) {
-                            console.log('[Force Auto Scan] На текущей странице нет курсов, загружаю главную страницу...');
-                            const response = await fetch(mainPageUrl, {
-                                credentials: 'include',
-                                headers: {
-                                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                                    'Accept-Language': 'ru-RU,ru;q=0.9',
-                                    'Referer': currentUrl,
-                                    'User-Agent': navigator.userAgent
-                                },
-                                mode: 'cors',
-                                redirect: 'follow'
-                            });
-                            
-                            if (response.ok) {
-                                const html = await response.text();
-                                const parser = new DOMParser();
-                                const doc = parser.parseFromString(html, 'text/html');
-                                
-                                // Ищем ссылки на курсы на главной странице
-                                const mainPageCourses = [];
-                                doc.querySelectorAll('a[href*="/course/view.php"], a[href*="/course/"]').forEach(a => {
-                                    if (a.href && a.href.includes('/course/') && !mainPageCourses.includes(a.href)) {
-                                        const urlWithLang = a.href.includes('lang=') ? a.href : 
-                                                          (a.href.includes('?') ? `${a.href}&lang=ru` : `${a.href}?lang=ru`);
-                                        mainPageCourses.push(urlWithLang);
-                                    }
-                                });
-                                
-                                coursesToScan = mainPageCourses;
-                                console.log(`[Force Auto Scan] На главной странице найдено ${coursesToScan.length} курсов`);
-                            }
+                        // Если на текущей странице нет курсов, предлагаем пользователю перейти на главную страницу
+                        if (courseLinks.length === 0) {
+                            console.warn('[Force Auto Scan] На текущей странице нет курсов. Для полного сканирования перейдите на главную страницу LMS (https://lms.mai.ru/)');
+                            this.showNotification('На текущей странице нет курсов. Перейдите на главную страницу для полного сканирования.', 'warning');
+                            // Не пытаемся загружать главную страницу через fetch, чтобы избежать 403
+                            // Пользователь может вручную перейти на главную страницу
                         }
+                        
+                        const coursesToScan = courseLinks;
                         
                         // Дедупликация курсов по ID
                         const uniqueCourses = new Map();
@@ -987,10 +962,15 @@
                 const response = await fetch(urlWithLang, {
                     credentials: 'include',
                     headers: {
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'ru-RU,ru;q=0.9',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
                         'Referer': window.location.href,
-                        'User-Agent': navigator.userAgent
+                        'User-Agent': navigator.userAgent,
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'same-origin',
+                        'Cache-Control': 'max-age=0'
                     },
                     mode: 'cors',
                     redirect: 'follow'
@@ -999,6 +979,8 @@
                 if (!response.ok) {
                     if (response.status === 403) {
                         console.warn(`[findReviewLinksFromCourse] Доступ запрещен (403) для ${urlWithLang}, пропускаю...`);
+                        // Добавляем задержку перед следующим запросом, чтобы не перегружать сервер
+                        await new Promise(resolve => setTimeout(resolve, 2000));
                         return [];
                     }
                     throw new Error(`HTTP ${response.status}`);

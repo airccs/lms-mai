@@ -45,6 +45,7 @@
                 console.log('[Moodle Quiz Solver] Not a review page, parsing questions...');
             this.parseQuestions();
             this.addSolveButtons();
+            this.addAnswerIcons(); // Добавляем иконки правильности рядом с вариантами ответа
                 this.setupAutoSave(); // Настраиваем автоматическое сохранение
                 this.observeDOM(); // Включаем observeDOM только на страницах вопросов
             }

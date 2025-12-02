@@ -201,62 +201,115 @@ app.post('/api/save', (req, res) => {
     const textSize = questionText ? questionText.length : 0;
     console.log(`[POST /api/save] questionHash: ${questionHash}, imageSize: ${imageSize}, textSize: ${textSize}`);
 
-    // Ограничиваем размер изображения (максимум 1MB в base64)
-    if (questionImage && questionImage.length > 1024 * 1024) {
-      console.warn(`[POST /api/save] Изображение слишком большое (${questionImage.length} байт), обрезаю`);
-      // Обрезаем изображение до 1MB
-      const truncatedImage = questionImage.substring(0, 1024 * 1024);
-      questionImage = truncatedImage;
+    // Валидация и нормализация данных
+    let processedImage = questionImage;
+    if (processedImage && typeof processedImage === 'string') {
+      // Ограничиваем размер изображения (максимум 500KB в base64 для SQLite)
+      if (processedImage.length > 512 * 1024) {
+        console.warn(`[POST /api/save] Изображение слишком большое (${processedImage.length} байт), обрезаю до 500KB`);
+        processedImage = processedImage.substring(0, 512 * 1024);
+      }
+    } else {
+      processedImage = null;
+    }
+
+    // Нормализуем timestamp (конвертируем из миллисекунд в секунды, если нужно)
+    let normalizedTimestamp = timestamp;
+    if (normalizedTimestamp) {
+      // Если timestamp больше 2147483647 (максимальное значение для 32-bit integer), значит это миллисекунды
+      if (normalizedTimestamp > 2147483647) {
+        normalizedTimestamp = Math.floor(normalizedTimestamp / 1000);
+      }
+    } else {
+      normalizedTimestamp = Math.floor(Date.now() / 1000);
+    }
+
+    // Сериализуем answer в JSON
+    let answerJson;
+    try {
+      answerJson = JSON.stringify(answer);
+    } catch (e) {
+      console.error('[POST /api/save] Ошибка сериализации answer:', e);
+      return res.status(400).json({ error: 'Invalid answer format' });
+    }
+
+    // Ограничиваем размер текста вопроса (максимум 100KB)
+    let processedText = questionText;
+    if (processedText && processedText.length > 100 * 1024) {
+      console.warn(`[POST /api/save] Текст вопроса слишком большой (${processedText.length} байт), обрезаю`);
+      processedText = processedText.substring(0, 100 * 1024);
     }
 
     // Check if answer already exists
-    const existingAnswer = db.prepare(`
-      SELECT * FROM saved_answers 
-      WHERE question_hash = ? AND answer_json = ?
-    `).get(questionHash, JSON.stringify(answer));
+    let existingAnswer;
+    try {
+      existingAnswer = db.prepare(`
+        SELECT * FROM saved_answers 
+        WHERE question_hash = ? AND answer_json = ?
+      `).get(questionHash, answerJson);
+    } catch (e) {
+      console.error('[POST /api/save] Ошибка при поиске существующего ответа:', e);
+      throw e;
+    }
 
     if (existingAnswer) {
       // Update existing answer if new one is more complete
-      const stmt = db.prepare(`
-        UPDATE saved_answers SET
-          is_correct = COALESCE(?, is_correct),
-          question_text = COALESCE(?, question_text),
-          question_image = COALESCE(?, question_image),
-          timestamp = COALESCE(?, timestamp)
-        WHERE id = ?
-      `);
-      
-      stmt.run(
-        isCorrect !== null ? isCorrect : existingAnswer.is_correct,
-        questionText || existingAnswer.question_text,
-        questionImage || existingAnswer.question_image,
-        timestamp || existingAnswer.timestamp,
-        existingAnswer.id
-      );
+      try {
+        const stmt = db.prepare(`
+          UPDATE saved_answers SET
+            is_correct = COALESCE(?, is_correct),
+            question_text = COALESCE(?, question_text),
+            question_image = COALESCE(?, question_image),
+            timestamp = COALESCE(?, timestamp)
+          WHERE id = ?
+        `);
+        
+        stmt.run(
+          isCorrect !== null ? isCorrect : existingAnswer.is_correct,
+          processedText || existingAnswer.question_text,
+          processedImage || existingAnswer.question_image,
+          normalizedTimestamp || existingAnswer.timestamp,
+          existingAnswer.id
+        );
+      } catch (e) {
+        console.error('[POST /api/save] Ошибка при обновлении ответа:', e);
+        throw e;
+      }
     } else {
       // Insert new answer
-      const stmt = db.prepare(`
-        INSERT INTO saved_answers 
-        (question_hash, answer_json, is_correct, question_text, question_image, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      stmt.run(
-        questionHash,
-        JSON.stringify(answer),
-        isCorrect,
-        questionText || null,
-        questionImage || null,
-        timestamp || Math.floor(Date.now() / 1000)
-      );
+      try {
+        const stmt = db.prepare(`
+          INSERT INTO saved_answers 
+          (question_hash, answer_json, is_correct, question_text, question_image, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run(
+          questionHash,
+          answerJson,
+          isCorrect,
+          processedText || null,
+          processedImage || null,
+          normalizedTimestamp
+        );
+      } catch (e) {
+        console.error('[POST /api/save] Ошибка при вставке ответа:', e);
+        throw e;
+      }
     }
 
     // Get all answers for this question
-    const allAnswers = db.prepare(`
-      SELECT * FROM saved_answers 
-      WHERE question_hash = ?
-      ORDER BY is_correct DESC, timestamp DESC
-    `).all(questionHash);
+    let allAnswers;
+    try {
+      allAnswers = db.prepare(`
+        SELECT * FROM saved_answers 
+        WHERE question_hash = ?
+        ORDER BY is_correct DESC, timestamp DESC
+      `).all(questionHash);
+    } catch (e) {
+      console.error('[POST /api/save] Ошибка при получении ответов:', e);
+      throw e;
+    }
 
     const answers = allAnswers.map(row => ({
       answer: safeJsonParse(row.answer_json),
@@ -270,6 +323,7 @@ app.post('/api/save', (req, res) => {
   } catch (error) {
     console.error('[POST /api/save] Error saving answer:', error);
     console.error('[POST /api/save] Error stack:', error.stack);
+    console.error('[POST /api/save] Request body:', JSON.stringify(req.body).substring(0, 500));
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });

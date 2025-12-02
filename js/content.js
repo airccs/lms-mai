@@ -3677,12 +3677,6 @@
                 if (text.includes(value)) {
                     text = text.replace(value, '').trim();
                 }
-                // Нормализуем текст: убираем лишние пробелы, приводим к нижнему регистру для сравнения
-                const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
-                
-                // Извлекаем букву варианта (a, b, c, d, e) из текста
-                const optionLetterMatch = text.match(/^([a-e])\.?\s*/i);
-                const optionLetter = optionLetterMatch ? optionLetterMatch[1].toLowerCase() : null;
                 
                 // Проверяем правильность варианта ответа
                 let isCorrect = null;
@@ -3690,41 +3684,27 @@
                 let correctCount = 0;
                 let incorrectCount = 0;
                 
-                // Функция для нормализации текста ответа для сравнения
-                const normalizeAnswerText = (answerText) => {
-                    if (!answerText) return '';
-                    return answerText.toLowerCase()
-                        .replace(/[.,]/g, '') // Убираем точки и запятые для сравнения чисел
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                };
-                
-                // Функция для проверки совпадения ответов
-                const isAnswerMatch = (answerData, currentValue, currentText, currentLetter) => {
-                    // Точное совпадение по value
-                    if (answerData.value === currentValue) return true;
-                    
-                    // Совпадение по букве варианта
-                    if (currentLetter && answerData.text) {
-                        const savedText = answerData.text.toLowerCase().trim();
-                        const savedLetterMatch = savedText.match(/^([a-e])\.?\s*/i);
-                        if (savedLetterMatch && savedLetterMatch[1].toLowerCase() === currentLetter) {
-                            return true;
-                        }
+                // Функция для проверки совпадения ответов (простое точное сравнение)
+                const isAnswerMatch = (answerData, currentValue, currentText) => {
+                    // Точное совпадение по value (самый надежный способ)
+                    if (answerData.value && answerData.value === currentValue) {
+                        return true;
                     }
                     
-                    // Сравнение нормализованного текста
-                    if (answerData.text) {
-                        const savedNormalized = normalizeAnswerText(answerData.text);
-                        const currentNormalized = normalizeAnswerText(currentText);
+                    // Точное совпадение по тексту (без нормализации)
+                    if (answerData.text && answerData.text.trim() === currentText.trim()) {
+                        return true;
+                    }
+                    
+                    // Проверка по части текста (если текст содержит value или наоборот)
+                    if (answerData.text && currentText) {
+                        const savedText = answerData.text.trim();
+                        const currentTextTrimmed = currentText.trim();
                         
-                        // Точное совпадение
-                        if (savedNormalized === currentNormalized) return true;
-                        
-                        // Частичное совпадение (если один текст содержит другой)
-                        if (savedNormalized.length > 5 && currentNormalized.length > 5) {
-                            if (savedNormalized.includes(currentNormalized) || 
-                                currentNormalized.includes(savedNormalized)) {
+                        // Если один текст содержит другой (для случаев, когда текст немного отличается)
+                        if (savedText.includes(currentTextTrimmed) || currentTextTrimmed.includes(savedText)) {
+                            // Но только если это не слишком короткие строки (чтобы избежать ложных срабатываний)
+                            if (savedText.length > 3 && currentTextTrimmed.length > 3) {
                                 return true;
                             }
                         }
@@ -3733,17 +3713,22 @@
                     return false;
                 };
                 
-                // Метод 1: Проверяем сохраненный ответ (локальный)
+                // Метод 1: Проверяем сохраненный ответ (локальный) - приоритетный
                 if (savedAnswer) {
                     const savedAnswerData = typeof savedAnswer.answer === 'string' 
                         ? JSON.parse(savedAnswer.answer) 
                         : savedAnswer.answer;
                     
-                    if (savedAnswerData && isAnswerMatch(savedAnswerData, value, text, optionLetter)) {
+                    if (savedAnswerData && isAnswerMatch(savedAnswerData, value, text)) {
+                        // Используем isCorrect из сохраненного ответа напрямую
                         isCorrect = savedAnswer.isCorrect;
                         confidence = 100;
-                        if (isCorrect) correctCount = 1;
-                        else incorrectCount = 1;
+                        if (isCorrect === true || isCorrect === 1) {
+                            correctCount = 1;
+                        } else if (isCorrect === false || isCorrect === 0) {
+                            incorrectCount = 1;
+                        }
+                        console.log(`[Answer Icons] Найден локальный сохраненный ответ для варианта ${value}: isCorrect=${isCorrect}`);
                     }
                 }
                 
@@ -3753,10 +3738,11 @@
                         ? JSON.parse(serverAnswer.answer) 
                         : serverAnswer.answer;
                     
-                    if (answerData && isAnswerMatch(answerData, value, text, optionLetter)) {
-                        if (serverAnswer.isCorrect === true || serverAnswer.isCorrect === 1) {
+                    if (answerData && isAnswerMatch(answerData, value, text)) {
+                        const serverIsCorrect = serverAnswer.isCorrect;
+                        if (serverIsCorrect === true || serverIsCorrect === 1) {
                             correctCount++;
-                        } else if (serverAnswer.isCorrect === false || serverAnswer.isCorrect === 0) {
+                        } else if (serverIsCorrect === false || serverIsCorrect === 0) {
                             incorrectCount++;
                         }
                     }

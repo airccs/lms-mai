@@ -54,10 +54,13 @@ function displayData(data) {
 
     dataList.innerHTML = data.map((item, index) => {
         const date = item.timestamp ? new Date(item.timestamp).toLocaleString('ru-RU') : 'Неизвестно';
+        // Проверяем isCorrect как boolean (true/false) или INTEGER (1/0) из SQLite
         const isCorrect = item.isCorrect;
-        const correctClass = isCorrect === true ? 'correct' : (isCorrect === false ? 'incorrect' : 'unknown');
-        const correctBadge = isCorrect === true ? '<span class="badge badge-correct">Правильно</span>' : 
-                            (isCorrect === false ? '<span class="badge badge-incorrect">Неправильно</span>' : 
+        const isCorrectBool = isCorrect === true || isCorrect === 1;
+        const isIncorrectBool = isCorrect === false || isCorrect === 0;
+        const correctClass = isCorrectBool ? 'correct' : (isIncorrectBool ? 'incorrect' : 'unknown');
+        const correctBadge = isCorrectBool ? '<span class="badge badge-correct">Правильно</span>' : 
+                            (isIncorrectBool ? '<span class="badge badge-incorrect">Неправильно</span>' : 
                             '<span class="badge badge-unknown">Неизвестно</span>');
 
         const answerText = formatAnswer(item.answer);
@@ -134,8 +137,14 @@ function updateStats(data) {
     document.getElementById('total-questions').textContent = data.length;
     document.getElementById('total-answers').textContent = data.length;
     
-    const correctCount = data.filter(item => item.isCorrect === true).length;
+    // Проверяем isCorrect как boolean (true) или INTEGER (1) из SQLite
+    const correctCount = data.filter(item => item.isCorrect === true || item.isCorrect === 1).length;
     document.getElementById('correct-answers').textContent = correctCount;
+    
+    // Вычисляем общую точность на основе isCorrect (а не только из статистики)
+    const totalWithIsCorrect = data.filter(item => item.isCorrect !== null && item.isCorrect !== undefined).length;
+    const accuracy = totalWithIsCorrect > 0 ? Math.round((correctCount / totalWithIsCorrect) * 100) : 0;
+    document.getElementById('accuracy').textContent = `${accuracy}%`;
 
     // Вычисляем примерный размер данных
     const dataSize = JSON.stringify(data).length;

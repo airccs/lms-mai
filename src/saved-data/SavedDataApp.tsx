@@ -6,7 +6,7 @@ interface SavedAnswer {
   hash: string;
   answer: any;
   timestamp: number;
-  isCorrect: boolean | null;
+  isCorrect: boolean | number | null; // SQLite хранит как INTEGER (0/1), не boolean
   questionText: string;
   questionImage?: string;
   statistics?: {
@@ -171,7 +171,7 @@ export default function SavedDataApp() {
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="text-2xl font-semibold text-blue-600 mb-1">
-              {Math.round((stats.correct / stats.total) * 100) || 0}%
+              {stats.accuracy}%
             </div>
             <div className="text-xs text-gray-500 uppercase tracking-wide">Точность</div>
           </div>
@@ -316,8 +316,8 @@ export default function SavedDataApp() {
                     <div>
                       <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Ответ</p>
                       <p className={`text-sm font-medium leading-relaxed whitespace-pre-wrap ${
-                        item.isCorrect === true ? 'text-green-700' :
-                        item.isCorrect === false ? 'text-red-700' : 'text-gray-900'
+                        (item.isCorrect === true || item.isCorrect === 1) ? 'text-green-700' :
+                        (item.isCorrect === false || item.isCorrect === 0) ? 'text-red-700' : 'text-gray-900'
                       }`}>
                         {formatAnswer(item.answer)}
                       </p>

@@ -2759,19 +2759,24 @@
                 // Объединяем данные с сервера с локальными
                 let mergedCount = 0;
                 let skippedCount = 0;
+                let newCount = 0;
                 for (const serverAnswer of serverAnswers) {
                     const questionHash = serverAnswer.questionHash;
                     if (!questionHash) continue;
                     
                     const localAnswer = this.savedAnswers.get(questionHash);
                     
-                    // Если локального ответа нет, или серверный ответ новее, используем серверный
-                    if (!localAnswer || (serverAnswer.timestamp && localAnswer.timestamp && serverAnswer.timestamp > localAnswer.timestamp)) {
+                    // Нормализуем timestamps для сравнения (сервер возвращает в миллисекундах)
+                    const serverTimestamp = serverAnswer.timestamp || 0;
+                    const localTimestamp = localAnswer?.timestamp || 0;
+                    
+                    // Если локального ответа нет - добавляем серверный
+                    if (!localAnswer) {
                         // Сохраняем в локальное хранилище
                         await this.safeStorageSet({
                             [`answer_${questionHash}`]: {
                                 answer: serverAnswer.answer,
-                                timestamp: serverAnswer.timestamp || Date.now(),
+                                timestamp: serverTimestamp,
                                 isCorrect: serverAnswer.isCorrect,
                                 questionText: serverAnswer.questionText || null,
                                 questionImage: serverAnswer.questionImage || null
@@ -2781,19 +2786,46 @@
                         // Обновляем в памяти
                         this.savedAnswers.set(questionHash, {
                             answer: serverAnswer.answer,
-                            timestamp: serverAnswer.timestamp || Date.now(),
+                            timestamp: serverTimestamp,
                             isCorrect: serverAnswer.isCorrect,
                             questionText: serverAnswer.questionText || null,
                             questionImage: serverAnswer.questionImage || null
                         });
                         
                         mergedCount++;
-                    } else {
+                        newCount++;
+                    } 
+                    // Если серверный ответ новее - обновляем локальный
+                    else if (serverTimestamp > localTimestamp) {
+                        // Сохраняем в локальное хранилище
+                        await this.safeStorageSet({
+                            [`answer_${questionHash}`]: {
+                                answer: serverAnswer.answer,
+                                timestamp: serverTimestamp,
+                                isCorrect: serverAnswer.isCorrect,
+                                questionText: serverAnswer.questionText || null,
+                                questionImage: serverAnswer.questionImage || null
+                            }
+                        });
+                        
+                        // Обновляем в памяти
+                        this.savedAnswers.set(questionHash, {
+                            answer: serverAnswer.answer,
+                            timestamp: serverTimestamp,
+                            isCorrect: serverAnswer.isCorrect,
+                            questionText: serverAnswer.questionText || null,
+                            questionImage: serverAnswer.questionImage || null
+                        });
+                        
+                        mergedCount++;
+                    } 
+                    // Если локальный ответ новее или равен - пропускаем
+                    else {
                         skippedCount++;
                     }
                 }
                 
-                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера, пропущено ${skippedCount} (локальные новее), всего: ${this.savedAnswers.size}`);
+                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера (новых: ${newCount}, обновлено: ${mergedCount - newCount}), пропущено ${skippedCount} (локальные новее или равны), всего: ${this.savedAnswers.size}`);
             } catch (e) {
                 console.error('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера:', e);
             }
@@ -3815,16 +3847,21 @@
                         ? JSON.parse(savedAnswer.answer) 
                         : savedAnswer.answer;
                     
-                    if (savedAnswerData && isAnswerMatch(savedAnswerData, value, text)) {
-                        // Используем isCorrect из сохраненного ответа напрямую
-                        isCorrect = savedAnswer.isCorrect;
-                        confidence = 100;
-                        if (isCorrect === true || isCorrect === 1) {
-                            correctCount = 1;
-                        } else if (isCorrect === false || isCorrect === 0) {
-                            incorrectCount = 1;
+                    if (savedAnswerData) {
+                        const matches = isAnswerMatch(savedAnswerData, value, text);
+                        if (matches) {
+                            // Используем isCorrect из сохраненного ответа напрямую
+                            isCorrect = savedAnswer.isCorrect;
+                            confidence = 100;
+                            if (isCorrect === true || isCorrect === 1) {
+                                correctCount = 1;
+                            } else if (isCorrect === false || isCorrect === 0) {
+                                incorrectCount = 1;
+                            }
+                            console.log(`[Answer Icons] Найден локальный сохраненный ответ для варианта ${value} (${text.substring(0, 30)}...): isCorrect=${isCorrect}, savedAnswer.value=${savedAnswerData.value}, savedAnswer.text=${savedAnswerData.text?.substring(0, 30)}`);
+                        } else {
+                            console.log(`[Answer Icons] Локальный ответ не совпадает: savedAnswer.value=${savedAnswerData.value}, currentValue=${value}, savedAnswer.text=${savedAnswerData.text?.substring(0, 30)}, currentText=${text.substring(0, 30)}`);
                         }
-                        console.log(`[Answer Icons] Найден локальный сохраненный ответ для варианта ${value}: isCorrect=${isCorrect}`);
                     }
                 }
                 

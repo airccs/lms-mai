@@ -380,6 +380,12 @@ async function handleServerSync(request, sendResponse) {
                 method: 'GET',
                 headers: headers
             });
+        } else if (syncAction === 'getAllSavedAnswers') {
+            // Получаем все сохраненные ответы для синхронизации
+            response = await fetchWithTimeout(`${apiUrl}/api/answers?limit=1000`, {
+                method: 'GET',
+                headers: headers
+            });
         } else if (syncAction === 'getStatistics') {
             // Получаем статистику с сервера
             response = await fetchWithTimeout(`${apiUrl}/api/stats/${questionHash}`, {

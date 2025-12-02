@@ -368,6 +368,38 @@ app.get('/api/answers/:questionHash', (req, res) => {
   }
 });
 
+// Get all saved answers (for synchronization)
+app.get('/api/answers', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 1000; // По умолчанию 1000 записей
+    const offset = parseInt(req.query.offset) || 0;
+
+    const rows = db.prepare(`
+      SELECT * FROM saved_answers 
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
+
+    const answers = rows.map(row => ({
+      questionHash: row.question_hash,
+      answer: safeJsonParse(row.answer_json),
+      isCorrect: row.is_correct,
+      questionText: row.question_text,
+      questionImage: row.question_image,
+      timestamp: row.timestamp * 1000, // Convert to milliseconds
+    }));
+
+    res.json({ 
+      answers,
+      total: rows.length,
+      hasMore: rows.length === limit
+    });
+  } catch (error) {
+    console.error('Error getting all answers:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Clear database endpoint (⚠️ USE WITH CAUTION)
 app.post('/api/clear', (req, res) => {
   try {

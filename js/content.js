@@ -2710,19 +2710,88 @@
                     }
                 }
                 
+                // Загружаем локальные данные
                 const result = await this.safeStorageGet(null);
-                if (!result) {
+                if (result) {
+                    for (const [key, value] of Object.entries(result)) {
+                        if (key.startsWith('answer_')) {
+                            this.savedAnswers.set(key.replace('answer_', ''), value);
+                        }
+                    }
+                }
+                console.log(`Loaded ${this.savedAnswers.size} saved answers from local storage`);
+                
+                // Загружаем данные с сервера для синхронизации
+                await this.loadSavedAnswersFromServer();
+            } catch (e) {
+                console.error('Error loading saved answers:', e);
+            }
+        }
+        
+        async loadSavedAnswersFromServer() {
+            try {
+                // Проверяем, не была ли выполнена очистка данных
+                const clearState = await this.safeStorageGet(['dataCleared', 'dataClearedTimestamp']);
+                if (clearState.dataCleared) {
+                    const clearTime = clearState.dataClearedTimestamp || 0;
+                    const timeSinceClear = Date.now() - clearTime;
+                    if (timeSinceClear < 5 * 60 * 1000) {
+                        console.log('[loadSavedAnswersFromServer] Данные были очищены недавно, пропускаю загрузку с сервера');
+                        return;
+                    }
+                }
+                
+                console.log('[loadSavedAnswersFromServer] Начало загрузки сохраненных ответов с сервера');
+                const response = await this.safeSendMessage({
+                    action: 'syncWithServer',
+                    syncAction: 'getAllSavedAnswers'
+                });
+                
+                if (!response || !response.success) {
+                    console.warn('[loadSavedAnswersFromServer] Не удалось загрузить данные с сервера:', response?.error || 'Unknown error');
                     return;
                 }
                 
-                for (const [key, value] of Object.entries(result)) {
-                    if (key.startsWith('answer_')) {
-                        this.savedAnswers.set(key.replace('answer_', ''), value);
+                const serverAnswers = response.answers || [];
+                console.log(`[loadSavedAnswersFromServer] Получено ${serverAnswers.length} ответов с сервера`);
+                
+                // Объединяем данные с сервера с локальными
+                let mergedCount = 0;
+                for (const serverAnswer of serverAnswers) {
+                    const questionHash = serverAnswer.questionHash;
+                    if (!questionHash) continue;
+                    
+                    const localAnswer = this.savedAnswers.get(questionHash);
+                    
+                    // Если локального ответа нет, или серверный ответ новее, используем серверный
+                    if (!localAnswer || (serverAnswer.timestamp && localAnswer.timestamp && serverAnswer.timestamp > localAnswer.timestamp)) {
+                        // Сохраняем в локальное хранилище
+                        await this.safeStorageSet({
+                            [`answer_${questionHash}`]: {
+                                answer: serverAnswer.answer,
+                                timestamp: serverAnswer.timestamp || Date.now(),
+                                isCorrect: serverAnswer.isCorrect,
+                                questionText: serverAnswer.questionText || null,
+                                questionImage: serverAnswer.questionImage || null
+                            }
+                        });
+                        
+                        // Обновляем в памяти
+                        this.savedAnswers.set(questionHash, {
+                            answer: serverAnswer.answer,
+                            timestamp: serverAnswer.timestamp || Date.now(),
+                            isCorrect: serverAnswer.isCorrect,
+                            questionText: serverAnswer.questionText || null,
+                            questionImage: serverAnswer.questionImage || null
+                        });
+                        
+                        mergedCount++;
                     }
                 }
-                console.log(`Loaded ${this.savedAnswers.size} saved answers`);
+                
+                console.log(`[loadSavedAnswersFromServer] Объединено ${mergedCount} ответов с сервера, всего: ${this.savedAnswers.size}`);
             } catch (e) {
-                console.error('Error loading saved answers:', e);
+                console.error('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера:', e);
             }
         }
 

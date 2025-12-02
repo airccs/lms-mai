@@ -1248,7 +1248,8 @@
                         autoScanInProgress: false, 
                         autoScanStartTime: null,
                         autoScanHeartbeat: null,
-                        autoScanUrl: null
+                        autoScanUrl: null,
+                        lastScanTime: null // Сбрасываем lastScanTime, чтобы разрешить немедленный запуск
                     });
                     // Продолжаем выполнение, чтобы запустить новое сканирование
                 } else if (heartbeatElapsed > MAX_HEARTBEAT_INTERVAL || elapsed > MAX_SCAN_DURATION) {

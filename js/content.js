@@ -938,25 +938,9 @@
                             console.warn('[scanReviewPageFromHTML] Не удалось извлечь изображение:', e);
                         }
 
-                        // Сохраняем ответ с названиями курса и теста
-                        const existingKey = `answer_${question.hash}`;
-                        const existing = await this.safeStorageGet([existingKey]);
-                        const existingData = existing[existingKey];
-                        
-                        // Обновляем названия, если их еще нет
-                        const answerData = {
-                            answer: userAnswer,
-                            timestamp: existingData?.timestamp || Date.now(),
-                            isCorrect: isCorrect,
-                            questionText: question.text,
-                            questionImage: questionImage,
-                            courseName: courseName || existingData?.courseName || null,
-                            quizName: quizName || existingData?.quizName || null
-                        };
-                        
-                        await this.safeStorageSet({ [existingKey]: answerData });
-                        this.savedAnswers.set(question.hash, answerData);
-                        
+                        // Сохраняем ответ с названиями курса и теста через saveAnswer
+                        // saveAnswer автоматически извлечет названия из текущей страницы,
+                        // но мы передаем их явно для страниц, загруженных через fetch
                         const wasUpdated = await this.saveAnswer(
                             question.hash,
                             userAnswer,
@@ -964,6 +948,22 @@
                             question.text,
                             questionImage
                         );
+                        
+                        // Если названия курса и теста были извлечены из HTML, обновляем их
+                        if (wasUpdated && (courseName || quizName)) {
+                            const existingKey = `answer_${question.hash}`;
+                            const existing = await this.safeStorageGet([existingKey]);
+                            const existingData = existing[existingKey];
+                            if (existingData) {
+                                const updatedData = {
+                                    ...existingData,
+                                    courseName: courseName || existingData.courseName || null,
+                                    quizName: quizName || existingData.quizName || null
+                                };
+                                await this.safeStorageSet({ [existingKey]: updatedData });
+                                this.savedAnswers.set(question.hash, updatedData);
+                            }
+                        }
 
                         if (wasUpdated) {
                             savedCount++;

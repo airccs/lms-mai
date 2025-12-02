@@ -769,7 +769,14 @@
                 console.log(`[Force Auto Scan] Найдено ${quizLinks.length} ссылок на тесты на текущей странице`);
                 
                 if (quizLinks.length === 0 && directReviewLinks.length === 0 && totalScanned === 0) {
-                    console.log('[Force Auto Scan] ⚠️ На странице нет ссылок для сканирования. Сканирование завершено без результатов.');
+                    // Проверяем, продолжается ли сканирование на других страницах
+                    const currentScanState = await this.safeStorageGet(['scannedUrls']) || {};
+                    const currentScannedUrls = currentScanState.scannedUrls || [];
+                    if (currentScannedUrls.length === 0) {
+                        console.log('[Force Auto Scan] ⚠️ На странице нет ссылок для сканирования. Сканирование завершено без результатов.');
+                    } else {
+                        console.log(`[Force Auto Scan] На текущей странице нет ссылок, но сканирование продолжается (отсканировано ${currentScannedUrls.length} URL)`);
+                    }
                 }
                 
                 for (const quizUrl of quizLinks) {
@@ -942,21 +949,64 @@
                     console.log(`[Force Auto Scan] На текущей странице нет ссылок, но сканирование уже в процессе (отсканировано ${scannedUrls.length} URL), продолжаю...`);
                 }
 
-                console.log(`[Force Auto Scan] Итоги сканирования: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);
-                this.showNotification(`Сканирование завершено! Просканировано: ${totalScanned}, найдено: ${totalFound}, сохранено: ${totalSaved}`, 'success');
+                // Проверяем, нужно ли завершать сканирование
+                // Сканирование завершается только если:
+                // 1. Это главная страница и все курсы обработаны
+                // 2. Или это страница курса и все ссылки обработаны
+                // 3. Или это не продолжение сканирования с другой страницы
+                const finalScanState = await this.safeStorageGet(['scannedUrls', 'autoScanUrl']) || {};
+                const finalScannedUrls = finalScanState.scannedUrls || [];
+                const scanStartedUrl = finalScanState.autoScanUrl;
+                const isMainPage = currentUrl === 'https://lms.mai.ru/' || 
+                                 currentUrl.includes('lms.mai.ru/my') ||
+                                 currentUrl.includes('lms.mai.ru/?redirect=0');
+                
+                // Если это главная страница и мы обработали все курсы, или если на текущей странице что-то найдено
+                const shouldComplete = (isMainPage && totalScanned > 0) || 
+                                      (!isMainPage && totalScanned > 0) ||
+                                      (totalScanned === 0 && finalScannedUrls.length === 0);
+                
+                // Если сканирование продолжается на другой странице, не завершаем его
+                const isScanContinuing = scanStartedUrl && scanStartedUrl !== currentUrl && finalScannedUrls.length > 0;
+                
+                if (shouldComplete && !isScanContinuing) {
+                    console.log(`[Force Auto Scan] Итоги сканирования: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);
+                    this.showNotification(`Сканирование завершено! Просканировано: ${totalScanned}, найдено: ${totalFound}, сохранено: ${totalSaved}`, 'success');
+                } else if (isScanContinuing) {
+                    console.log(`[Force Auto Scan] Сканирование продолжается на других страницах (отсканировано ${finalScannedUrls.length} URL), не завершаю`);
+                    // Не завершаем сканирование, просто обновляем heartbeat
+                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                } else {
+                    console.log(`[Force Auto Scan] Итоги на текущей странице: просканировано ${totalScanned}, найдено ${totalFound}, сохранено ${totalSaved}`);
+                }
             } catch (error) {
                 console.error('[Force Auto Scan] Критическая ошибка:', error);
                 this.showNotification('Ошибка при автосканировании: ' + error.message, 'error');
             } finally {
-                // Сбрасываем флаги сканирования
+                // Проверяем, нужно ли сбрасывать флаги сканирования
+                const finalCheckState = await this.safeStorageGet(['scannedUrls', 'autoScanUrl']) || {};
+                const finalCheckScannedUrls = finalCheckState.scannedUrls || [];
+                const finalCheckScanUrl = finalCheckState.autoScanUrl;
+                const isStillScanning = finalCheckScanUrl && finalCheckScanUrl !== currentUrl && finalCheckScannedUrls.length > 0;
+                
+                // Сбрасываем локальный флаг, но не глобальный, если сканирование продолжается
                 this.isForceScanning = false;
-                await this.safeStorageSet({ 
-                    autoScanInProgress: false, 
-                    autoScanStartTime: null,
-                    autoScanHeartbeat: null,
-                    autoScanUrl: null
-                });
-                console.log('[Force Auto Scan] Флаги сканирования сброшены');
+                
+                if (!isStillScanning) {
+                    // Сбрасываем флаги сканирования только если сканирование действительно завершено
+                    await this.safeStorageSet({ 
+                        autoScanInProgress: false, 
+                        autoScanStartTime: null,
+                        autoScanHeartbeat: null,
+                        autoScanUrl: null
+                    });
+                    console.log('[Force Auto Scan] Флаги сканирования сброшены');
+                } else {
+                    console.log('[Force Auto Scan] Сканирование продолжается на других страницах, флаги не сбрасываю');
+                    // Обновляем heartbeat, чтобы показать, что сканирование активно
+                    await this.safeStorageSet({ autoScanHeartbeat: Date.now() });
+                }
+                
                 clearInterval(heartbeatInterval);
             }
         }

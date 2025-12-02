@@ -256,9 +256,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     dataCleared: true,
                     dataClearedTimestamp: Date.now(),
                     lastScanTime: null, // Сбрасываем lastScanTime при очистке данных
-                    scannedUrls: [] // Очищаем список отсканированных URL для нового сканирования
+                    scannedUrls: [], // Очищаем список отсканированных URL для нового сканирования
+                    scannedUrlsMeta: {} // Очищаем метаданные о сканировании
                 }, () => {
-                    console.log('[Background] Данные очищены, флаг dataCleared установлен, lastScanTime и scannedUrls сброшены');
+                    console.log('[Background] Данные очищены, флаг dataCleared установлен, lastScanTime, scannedUrls и scannedUrlsMeta сброшены');
                     sendResponse({ success: true, cleared: keysToRemove.length });
                 });
             });

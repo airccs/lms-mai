@@ -464,26 +464,88 @@
         }
 
         // Функции для работы с отслеживанием прогресса сканирования
-        async markUrlAsScanned(url) {
+        async markUrlAsScanned(url, questionsCount = 0) {
             // Нормализуем URL (убираем параметры, которые не влияют на содержимое)
             const normalizedUrl = this.normalizeUrl(url);
-            const scanState = await this.safeStorageGet(['scannedUrls']) || {};
-            const scannedUrls = scanState.scannedUrls || new Set();
-            if (!(scannedUrls instanceof Set)) {
-                // Конвертируем массив в Set, если это массив
-                scannedUrls = new Set(Array.isArray(scannedUrls) ? scannedUrls : []);
+            const scanState = await this.safeStorageGet(['scannedUrls', 'scannedUrlsMeta']) || {};
+            const scannedUrls = scanState.scannedUrls || [];
+            const scannedUrlsMeta = scanState.scannedUrlsMeta || {};
+            
+            // Добавляем URL в список отсканированных, если его там еще нет
+            if (!scannedUrls.includes(normalizedUrl)) {
+                scannedUrls.push(normalizedUrl);
             }
-            scannedUrls.add(normalizedUrl);
-            // Сохраняем как массив, так как Set не сериализуется в JSON
-            await this.safeStorageSet({ scannedUrls: Array.from(scannedUrls) });
-            console.log(`[Force Auto Scan] URL отмечен как отсканированный: ${normalizedUrl}`);
+            
+            // Сохраняем метаданные о сканировании (количество найденных вопросов, время сканирования)
+            scannedUrlsMeta[normalizedUrl] = {
+                questionsCount: questionsCount,
+                scannedAt: Date.now(),
+                success: true
+            };
+            
+            await this.safeStorageSet({ 
+                scannedUrls: scannedUrls,
+                scannedUrlsMeta: scannedUrlsMeta
+            });
+            console.log(`[Force Auto Scan] URL отмечен как отсканированный: ${normalizedUrl} (найдено вопросов: ${questionsCount})`);
+        }
+        
+        async markUrlAsFailed(url, error) {
+            // Отмечаем URL как неудачно отсканированный (для возможного повторного сканирования)
+            const normalizedUrl = this.normalizeUrl(url);
+            const scanState = await this.safeStorageGet(['scannedUrlsMeta']) || {};
+            const scannedUrlsMeta = scanState.scannedUrlsMeta || {};
+            
+            scannedUrlsMeta[normalizedUrl] = {
+                questionsCount: 0,
+                scannedAt: Date.now(),
+                success: false,
+                error: error?.message || String(error),
+                retryCount: (scannedUrlsMeta[normalizedUrl]?.retryCount || 0) + 1
+            };
+            
+            await this.safeStorageSet({ scannedUrlsMeta: scannedUrlsMeta });
+            console.log(`[Force Auto Scan] URL отмечен как неудачно отсканированный: ${normalizedUrl} (попытка ${scannedUrlsMeta[normalizedUrl].retryCount})`);
         }
 
-        async isUrlScanned(url) {
+        async isUrlScanned(url, allowRetry = true) {
             const normalizedUrl = this.normalizeUrl(url);
-            const scanState = await this.safeStorageGet(['scannedUrls']) || {};
+            const scanState = await this.safeStorageGet(['scannedUrls', 'scannedUrlsMeta']) || {};
             const scannedUrls = scanState.scannedUrls || [];
-            return scannedUrls.includes(normalizedUrl);
+            const scannedUrlsMeta = scanState.scannedUrlsMeta || {};
+            
+            // Если URL не в списке отсканированных, значит не сканировался
+            if (!scannedUrls.includes(normalizedUrl)) {
+                return false;
+            }
+            
+            // Если URL в списке, проверяем метаданные
+            const meta = scannedUrlsMeta[normalizedUrl];
+            if (!meta) {
+                // Если нет метаданных, считаем что сканирование было успешным (старая версия)
+                return true;
+            }
+            
+            // Если сканирование было успешным, пропускаем
+            if (meta.success) {
+                return true;
+            }
+            
+            // Если сканирование было неудачным, проверяем, можно ли повторить
+            if (allowRetry && !meta.success) {
+                const MAX_RETRIES = 3; // Максимум 3 попытки
+                const RETRY_DELAY = 5 * 60 * 1000; // 5 минут между попытками
+                const timeSinceLastTry = Date.now() - (meta.scannedAt || 0);
+                
+                // Если попыток меньше максимума и прошло достаточно времени, разрешаем повтор
+                if (meta.retryCount < MAX_RETRIES && timeSinceLastTry > RETRY_DELAY) {
+                    console.log(`[Force Auto Scan] URL был отсканирован неудачно, разрешаю повтор (попытка ${meta.retryCount + 1}/${MAX_RETRIES})`);
+                    return false; // Разрешаем повторное сканирование
+                }
+            }
+            
+            // В остальных случаях считаем, что URL уже сканировался
+            return true;
         }
 
         normalizeUrl(url) {
@@ -627,10 +689,19 @@
                                     totalScanned++;
                                     totalFound += result.questions;
                                     totalSaved += result.saved;
-                                    // Отмечаем URL как отсканированный
-                                    await this.markUrlAsScanned(reviewLink);
+                                    // Отмечаем URL как отсканированный только если сканирование успешно
+                                    // и найдено хотя бы одно сохранение (или вопросы найдены)
+                                    if (result.saved > 0 || result.questions > 0) {
+                                        await this.markUrlAsScanned(reviewLink, result.questions);
+                                    } else {
+                                        console.warn(`[Force Auto Scan] URL отсканирован, но данных не найдено: ${reviewLink}`);
+                                        // Отмечаем как успешно отсканированный, но с 0 вопросов
+                                        await this.markUrlAsScanned(reviewLink, 0);
+                                    }
                                 } catch (error) {
                                     console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                                    // Отмечаем как неудачно отсканированный для возможного повторного сканирования
+                                    await this.markUrlAsFailed(reviewLink, error);
                                 }
                                 
                                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -664,10 +735,16 @@
                         totalScanned++;
                         totalFound += result.questions;
                         totalSaved += result.saved;
-                        // Отмечаем URL как отсканированный
-                        await this.markUrlAsScanned(link);
+                        // Отмечаем URL как отсканированный только если сканирование успешно
+                        if (result.saved > 0 || result.questions > 0) {
+                            await this.markUrlAsScanned(link, result.questions);
+                        } else {
+                            console.warn(`[Force Auto Scan] URL отсканирован, но данных не найдено: ${link}`);
+                            await this.markUrlAsScanned(link, 0);
+                        }
                     } catch (error) {
                         console.error(`[Force Auto Scan] Ошибка при сканировании ${link}:`, error);
+                        await this.markUrlAsFailed(link, error);
                     }
                     
                     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -702,10 +779,16 @@
                             totalScanned++;
                             totalFound += result.questions;
                             totalSaved += result.saved;
-                            // Отмечаем URL как отсканированный
-                            await this.markUrlAsScanned(reviewLink);
+                            // Отмечаем URL как отсканированный только если сканирование успешно
+                            if (result.saved > 0 || result.questions > 0) {
+                                await this.markUrlAsScanned(reviewLink, result.questions);
+                            } else {
+                                console.warn(`[Force Auto Scan] URL отсканирован, но данных не найдено: ${reviewLink}`);
+                                await this.markUrlAsScanned(reviewLink, 0);
+                            }
                         } catch (error) {
                             console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
+                            await this.markUrlAsFailed(reviewLink, error);
                         }
                         
                         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -725,10 +808,16 @@
                                 totalScanned++;
                                 totalFound += result.questions;
                                 totalSaved += result.saved;
-                                // Отмечаем URL как отсканированный
-                                await this.markUrlAsScanned(reviewLink);
+                                // Отмечаем URL как отсканированный только если сканирование успешно
+                                if (result.saved > 0 || result.questions > 0) {
+                                    await this.markUrlAsScanned(reviewLink, result.questions);
+                                } else {
+                                    console.warn(`[Force Auto Scan] URL отсканирован, но данных не найдено: ${reviewLink}`);
+                                    await this.markUrlAsScanned(reviewLink, 0);
+                                }
                             } catch (error) {
                                 console.error(`[Force Auto Scan] Ошибка при сканировании review:`, error);
+                                await this.markUrlAsFailed(reviewLink, error);
                             }
                         } else {
                             console.log(`[Force Auto Scan] URL уже отсканирован, пропускаю: ${reviewLink}`);
@@ -810,7 +899,7 @@
                                         totalFound += result.questions;
                                         totalSaved += result.saved;
                                         // Отмечаем URL как отсканированный
-                                        await this.markUrlAsScanned(reviewLink);
+                                        await this.markUrlAsScanned(reviewLink, result.questions);
                                     } catch (error) {
                                         console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, error);
                                     }
@@ -1424,10 +1513,16 @@
                                 const result = await this.scanReviewPageWithFetch(reviewLink);
                                 totalQuestions += result.questions;
                                 totalSaved += result.saved;
-                                // Отмечаем URL как отсканированный
-                                await this.markUrlAsScanned(reviewLink);
+                                // Отмечаем URL как отсканированный только если сканирование успешно
+                                if (result.saved > 0 || result.questions > 0) {
+                                    await this.markUrlAsScanned(reviewLink, result.questions);
+                                } else {
+                                    console.warn(`[Force Auto Scan] URL отсканирован, но данных не найдено: ${reviewLink}`);
+                                    await this.markUrlAsScanned(reviewLink, 0);
+                                }
                             } catch (e) {
                                 console.error(`[Force Auto Scan] Ошибка при сканировании ${reviewLink}:`, e);
+                                await this.markUrlAsFailed(reviewLink, e);
                             }
                             
                             // Небольшая задержка между запросами

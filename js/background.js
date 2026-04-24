@@ -1,43 +1,40 @@
 // Moodle Quiz Solver - Background Service Worker
+const DEFAULT_API_URL = 'http://130.61.200.70:8080';
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log('Moodle Quiz Solver installed');
     
-    // Инициализация синхронизации статистики
-    chrome.storage.sync.get(['questionStats', 'apiSettings'], (result) => {
+    // Инициализация локальной статистики (НЕ sync — лимит 100KB)
+    chrome.storage.local.get(['questionStats', 'apiUrl'], (result) => {
         if (!result.questionStats) {
-            chrome.storage.sync.set({ questionStats: {} });
+            chrome.storage.local.set({ questionStats: {} });
         }
-        // Инициализация настроек API (по умолчанию включена синхронизация)
+        // Устанавливаем дефолтный apiUrl если не задан
+        if (!result.apiUrl) {
+            chrome.storage.local.set({ apiUrl: DEFAULT_API_URL });
+        }
+    });
+    
+    // Инициализация настроек в sync (только настройки, не данные)
+    chrome.storage.sync.get(['apiSettings'], (result) => {
         if (!result.apiSettings) {
             chrome.storage.sync.set({ 
                 apiSettings: {
                     enabled: true,
-                    apiUrl: 'http://130.61.200.70:8080',
+                    apiUrl: DEFAULT_API_URL,
                     apiKey: ''
-                }
-            });
-        } else {
-            // Принудительно обновляем настройки для всех пользователей
-            chrome.storage.sync.set({ 
-                apiSettings: {
-                    enabled: true,
-                    apiUrl: 'http://130.61.200.70:8080',
-                    apiKey: result.apiSettings.apiKey || ''
                 }
             });
         }
     });
-    
-    // Принудительно обновляем apiUrl в local storage
-    chrome.storage.local.set({ 
-        apiUrl: 'http://130.61.200.70:8080'
-    });
 });
 
-// Также обновляем при каждом запуске расширения
+// При запуске расширения убеждаемся что apiUrl задан
 chrome.runtime.onStartup.addListener(() => {
-    chrome.storage.local.set({ 
-        apiUrl: 'http://130.61.200.70:8080'
+    chrome.storage.local.get(['apiUrl'], (result) => {
+        if (!result.apiUrl) {
+            chrome.storage.local.set({ apiUrl: DEFAULT_API_URL });
+        }
     });
 });
 
@@ -78,7 +75,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'updateStatistics') {
         const { questionHash, answer, isCorrect } = request;
         
-        chrome.storage.sync.get(['questionStats'], (result) => {
+        // Используем local storage — sync имеет лимит 100KB
+        chrome.storage.local.get(['questionStats'], (result) => {
             const stats = result.questionStats || {};
             const questionStats = stats[questionHash] || {
                 totalAttempts: 0,
@@ -91,10 +89,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (isCorrect) {
                 questionStats.correctAttempts++;
             } else {
+                if (!questionStats.errors) questionStats.errors = [];
+                // Храним только последние 10 ошибок чтобы не раздувать хранилище
                 questionStats.errors.push({
                     answer: answer,
                     timestamp: Date.now()
                 });
+                if (questionStats.errors.length > 10) {
+                    questionStats.errors = questionStats.errors.slice(-10);
+                }
             }
 
             const answerKey = JSON.stringify(answer);
@@ -102,7 +105,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             stats[questionHash] = questionStats;
 
-            chrome.storage.sync.set({ questionStats: stats }, () => {
+            chrome.storage.local.set({ questionStats: stats }, () => {
                 sendResponse({ success: true, statistics: questionStats });
             });
         });
@@ -110,7 +113,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'getStatistics') {
-        chrome.storage.sync.get(['questionStats'], (result) => {
+        chrome.storage.local.get(['questionStats'], (result) => {
             const stats = result.questionStats || {};
             sendResponse({ statistics: stats[request.questionHash] || null });
         });
@@ -118,7 +121,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'getAllStatistics') {
-        chrome.storage.sync.get(['questionStats'], (result) => {
+        chrome.storage.local.get(['questionStats'], (result) => {
             sendResponse({ statistics: result.questionStats || {} });
         });
         return true;
@@ -131,29 +134,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'getApiSettings') {
-        // Всегда возвращаем фиксированные настройки
-        const fixedSettings = {
-            enabled: true,
-            apiUrl: 'http://130.61.200.70:8080',
-            apiKey: ''
-        };
-        // Обновляем настройки в хранилище, чтобы они всегда были правильными
-        chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {
-            sendResponse({ settings: fixedSettings });
+        // Читаем URL из local storage (настраивается пользователем)
+        chrome.storage.local.get(['apiUrl'], (result) => {
+            const apiUrl = result.apiUrl || DEFAULT_API_URL;
+            const settings = {
+                enabled: true,
+                apiUrl: apiUrl,
+                apiKey: ''
+            };
+            sendResponse({ settings: settings });
         });
         return true;
     }
 
     if (request.action === 'saveApiSettings') {
-        // Игнорируем попытки изменить настройки - они всегда фиксированные
-        const fixedSettings = {
-            enabled: true,
-            apiUrl: 'http://130.61.200.70:8080',
-            apiKey: ''
-        };
-        chrome.storage.sync.set({ apiSettings: fixedSettings }, () => {
-            sendResponse({ success: true });
-        });
+        // Сохраняем новый URL сервера в local storage
+        const { apiUrl } = request;
+        if (apiUrl && typeof apiUrl === 'string' && apiUrl.startsWith('http')) {
+            chrome.storage.local.set({ apiUrl: apiUrl.trim() }, () => {
+                sendResponse({ success: true });
+            });
+        } else {
+            sendResponse({ success: false, error: 'Некорректный URL' });
+        }
         return true;
     }
 
@@ -279,17 +282,15 @@ async function handleServerSync(request, sendResponse) {
     try {
         const { questionHash, answer, isCorrect, syncAction } = request;
         
-        // Всегда используем правильный URL (игнорируем chrome.storage.local для надежности)
-        const apiUrl = 'http://130.61.200.70:8080';
-        
-        // Обновляем хранилище для будущих использований
-        chrome.storage.local.set({ apiUrl: apiUrl });
+        // Читаем API URL из хранилища (пользователь может его изменить)
+        const storageData = await chrome.storage.local.get(['apiUrl']);
+        const apiUrl = storageData.apiUrl || DEFAULT_API_URL;
         const headers = {
             'Content-Type': 'application/json'
         };
 
         // Функция для выполнения fetch с таймаутом
-        const fetchWithTimeout = async (url, options, timeout = 8000) => {
+        const fetchWithTimeout = async (url, options, timeout = 5000) => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);
             
@@ -309,10 +310,21 @@ async function handleServerSync(request, sendResponse) {
             }
         };
 
+        // Обёртка с одним авто-retry при сбое сети или таймауте
+        const fetchWithRetry = async (url, options, timeout = 5000) => {
+            try {
+                return await fetchWithTimeout(url, options, timeout);
+            } catch (firstError) {
+                console.warn('[handleServerSync] Первая попытка не удалась, retry через 1с:', firstError.message);
+                await new Promise(r => setTimeout(r, 1000));
+                return await fetchWithTimeout(url, options, timeout);
+            }
+        };
+
         let response;
         if (syncAction === 'submitAnswer') {
             // Отправляем статистику ответа
-            response = await fetchWithTimeout(`${apiUrl}/api/submit`, {
+            response = await fetchWithRetry(`${apiUrl}/api/submit`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({
@@ -368,53 +380,33 @@ async function handleServerSync(request, sendResponse) {
                 return;
             }
             
-            response = await fetchWithTimeout(`${apiUrl}/api/save`, {
+            response = await fetchWithRetry(`${apiUrl}/api/save`, {
                 method: 'POST',
                 headers: headers,
                 body: requestBodyString
             });
         } else if (syncAction === 'getSavedAnswers') {
-            // Получаем сохраненные ответы других пользователей
-            // Используем правильный endpoint /api/answers/:questionHash
-            response = await fetchWithTimeout(`${apiUrl}/api/answers/${questionHash}`, {
+            response = await fetchWithRetry(`${apiUrl}/api/answers/${questionHash}`, {
                 method: 'GET',
                 headers: headers
             });
         } else if (syncAction === 'getAllSavedAnswers') {
-            // Получаем все сохраненные ответы для синхронизации (без лимита - загружаем все)
-            response = await fetchWithTimeout(`${apiUrl}/api/answers`, {
+            response = await fetchWithRetry(`${apiUrl}/api/answers`, {
                 method: 'GET',
                 headers: headers
             });
         } else if (syncAction === 'getStatistics') {
-            // Получаем статистику с сервера
-            response = await fetchWithTimeout(`${apiUrl}/api/stats/${questionHash}`, {
+            response = await fetchWithRetry(`${apiUrl}/api/stats/${questionHash}`, {
                 method: 'GET',
                 headers: headers
             });
         } else if (syncAction === 'getAllStatistics') {
-            // Получаем всю статистику
             console.log('[handleServerSync] Запрос getAllStatistics к:', `${apiUrl}/api/stats`);
-            
-            // Добавляем таймаут для fetch
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 секунд таймаут
-            
-            try {
-                response = await fetch(`${apiUrl}/api/stats`, {
-                    method: 'GET',
-                    headers: headers,
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                console.log('[handleServerSync] Ответ getAllStatistics:', response.status, response.statusText);
-            } catch (fetchError) {
-                clearTimeout(timeoutId);
-                if (fetchError.name === 'AbortError') {
-                    throw new Error('Timeout: запрос к серверу превысил 8 секунд');
-                }
-                throw fetchError;
-            }
+            response = await fetchWithRetry(`${apiUrl}/api/stats`, {
+                method: 'GET',
+                headers: headers
+            });
+            console.log('[handleServerSync] Ответ getAllStatistics:', response.status, response.statusText);
         }
 
         if (response && response.ok) {

@@ -13,11 +13,15 @@ import {
   Save,
   Database as DatabaseIcon,
   Scan,
-  RefreshCw
+  RefreshCw,
+  Settings,
+  Server
 } from 'lucide-react';
 import { Section } from '../components/Section';
 import { InfoBlock } from '../components/InfoBlock';
 import { StatsChart } from '../components/StatsChart';
+
+const DEFAULT_API_URL = 'http://130.61.200.70:8080';
 
 const App: React.FC = () => {
   const [stats, setStats] = useState({
@@ -26,6 +30,10 @@ const App: React.FC = () => {
     attempts: 0
   });
   const [syncStatus, setSyncStatus] = useState('Проверка соединения...');
+  const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL);
+  const [apiUrlInput, setApiUrlInput] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [savingUrl, setSavingUrl] = useState(false);
 
   useEffect(() => {
     // Используем setTimeout для асинхронной загрузки после монтирования
@@ -184,32 +192,53 @@ const App: React.FC = () => {
         response = await chrome.runtime.sendMessage({ action: 'getApiSettings' });
       } catch (err) {
         console.warn('Error sending message to background:', err);
-        checkApiConnection('http://130.61.200.70:8080');
+        checkApiConnection(DEFAULT_API_URL);
         return;
       }
 
       if (response && response.settings && response.settings.apiUrl) {
-        const apiUrl = response.settings.apiUrl;
-        checkApiConnection(apiUrl);
+        const url = response.settings.apiUrl;
+        setApiUrl(url);
+        setApiUrlInput(url);
+        checkApiConnection(url);
       } else {
-        checkApiConnection('http://130.61.200.70:8080');
+        checkApiConnection(DEFAULT_API_URL);
       }
     } catch (e) {
       console.error('Error loading API settings:', e);
-      checkApiConnection('http://130.61.200.70:8080');
+      checkApiConnection(DEFAULT_API_URL);
     }
   };
 
-  const checkApiConnection = async function checkApiConnection(apiUrl: string) {
+  const saveApiUrl = async function saveApiUrl() {
+    const trimmed = apiUrlInput.trim();
+    if (!trimmed.startsWith('http')) {
+      alert('URL должен начинаться с http:// или https://');
+      return;
+    }
+    setSavingUrl(true);
+    try {
+      await chrome.runtime.sendMessage({ action: 'saveApiSettings', apiUrl: trimmed });
+      setApiUrl(trimmed);
+      setShowSettings(false);
+      checkApiConnection(trimmed);
+    } catch (e) {
+      console.error('Ошибка сохранения URL:', e);
+    } finally {
+      setSavingUrl(false);
+    }
+  };
+
+  const checkApiConnection = async function checkApiConnection(url: string) {
     setSyncStatus('⏳ Проверка соединения...');
     try {
-      const response = await fetch(`${apiUrl}/api/health`, {
+      const response = await fetch(`${url}/api/health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
       });
 
       if (response.ok) {
-        setSyncStatus('Соединение установлено');
+        setSyncStatus('✅ Соединение установлено');
       } else {
         setSyncStatus('⚠️ Сервер недоступен');
       }
@@ -339,17 +368,59 @@ const App: React.FC = () => {
 
         {/* Sync */}
         <Section title="Синхронизация между пользователями" icon={Globe}>
-          <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-2">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 Синхронизация включена
               </div>
               <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <Server className="w-4 h-4 text-emerald-600" />
                 {syncStatus}
               </div>
             </div>
+          </div>
+
+          {/* API URL Settings */}
+          <div className="bg-white border border-slate-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Сервер API</span>
+              <button
+                onClick={() => { setShowSettings(!showSettings); setApiUrlInput(apiUrl); }}
+                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <Settings className="w-3 h-3" />
+                {showSettings ? 'Скрыть' : 'Изменить'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 font-mono truncate">{apiUrl}</p>
+
+            {showSettings && (
+              <div className="mt-3 space-y-2">
+                <input
+                  type="text"
+                  value={apiUrlInput}
+                  onChange={(e) => setApiUrlInput(e.target.value)}
+                  placeholder="http://your-server:8080"
+                  className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-blue-400"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveApiUrl}
+                    disabled={savingUrl}
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors"
+                  >
+                    {savingUrl ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                  <button
+                    onClick={() => checkApiConnection(apiUrlInput)}
+                    className="text-xs text-slate-600 hover:text-slate-800 border border-slate-300 py-1.5 px-3 rounded transition-colors"
+                  >
+                    Проверить
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 

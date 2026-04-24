@@ -92,12 +92,13 @@
                 if (errorMessage.includes('Could not establish connection') ||
                     errorMessage.includes('message port closed') ||
                     errorMessage.includes('Extension context invalidated') ||
-                    errorMessage.includes('The message port closed')) {
-                    console.warn('[safeSendMessage] Background script недоступен или порт закрыт, игнорирую:', message.action);
+                    errorMessage.includes('The message port closed') ||
+                    errorMessage.includes('message channel closed before a response was received')) {
+                    // Это штатная ситуация MV3: service worker был убит браузером пока ждал ответа
                     return null;
                 }
                 // Для других ошибок логируем
-                console.error('[safeSendMessage] Ошибка при отправке сообщения:', error, message);
+                console.warn('[safeSendMessage] Ошибка при отправке сообщения:', errorMessage);
                 return null;
             }
         }
@@ -2748,7 +2749,11 @@
                 });
                 
                 if (!response || !response.success) {
-                    console.warn('[loadSavedAnswersFromServer] Не удалось загрузить данные с сервера:', response?.error || 'Unknown error');
+                    // null-response — background был убит браузером, ошибка уже залогирована в safeSendMessage
+                    if (response && response.error) {
+                        console.warn('[loadSavedAnswersFromServer] Ошибка от сервера:', response.error);
+                        this.handleServerError(response.error, response.statusCode);
+                    }
                     return;
                 }
                 
@@ -2941,7 +2946,8 @@
                     }
                 }
             } catch (e) {
-                console.error('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера:', e);
+                console.warn('[loadSavedAnswersFromServer] Ошибка загрузки данных с сервера (сервер недоступен?):', e.message || e);
+                this.handleServerError(e.message, null);
             }
         }
 
@@ -4697,24 +4703,40 @@
             }
         }
 
-        // Обработка ошибок сервера (429, 503 и т.д.)
+        // Обработка ошибок сервера (429, 503, таймаут, Failed to fetch)
         handleServerError(error, statusCode) {
             const errorStr = error?.toString() || '';
-            const shouldDisable = statusCode === 429 || statusCode === 503 || 
+            const isRateLimit = statusCode === 429 || statusCode === 503 || 
                                  errorStr.includes('429') || errorStr.includes('503') || 
                                  errorStr.includes('quota') || errorStr.includes('limit') ||
                                  errorStr.includes('rate limit') || errorStr.includes('too many requests');
             
-            if (shouldDisable) {
+            // Таймаут или недоступность сервера — отключаем на период SYNC_DISABLE_DURATION
+            const isNetworkError = errorStr.includes('Timeout') || 
+                                   errorStr.includes('Failed to fetch') ||
+                                   errorStr.includes('NetworkError') ||
+                                   errorStr.includes('Network request failed');
+            
+            if (isRateLimit) {
                 console.warn('[handleServerError] Обнаружена ошибка сервера (лимит запросов), отключаю синхронизацию на', this.SYNC_DISABLE_DURATION / 1000 / 60, 'минут');
                 this.serverSyncDisabled = true;
                 this.serverSyncDisabledUntil = Date.now() + this.SYNC_DISABLE_DURATION;
-                
-                // Сохраняем состояние в storage
                 this.safeStorageSet({
                     serverSyncDisabled: true,
                     serverSyncDisabledUntil: this.serverSyncDisabledUntil
                 });
+            } else if (isNetworkError) {
+                // При недоступности сервера отключаем синхронизацию на 15 минут чтобы не спамить запросами
+                const NETWORK_DISABLE_DURATION = 15 * 60 * 1000; // 15 минут
+                console.warn('[handleServerError] Сервер недоступен (таймаут/ошибка сети), отключаю синхронизацию на 15 минут. Проверьте URL в попапе расширения.');
+                if (!this.serverSyncDisabled) {
+                    this.serverSyncDisabled = true;
+                    this.serverSyncDisabledUntil = Date.now() + NETWORK_DISABLE_DURATION;
+                    this.safeStorageSet({
+                        serverSyncDisabled: true,
+                        serverSyncDisabledUntil: this.serverSyncDisabledUntil
+                    });
+                }
             }
         }
 
@@ -4780,7 +4802,7 @@
                         break;
                     }
                 } catch (error) {
-                    console.error(`[processSyncQueue] ❌ Исключение при синхронизации ${request.syncAction}:`, error);
+                    console.warn(`[processSyncQueue] Сервер недоступен (${request.syncAction}): ${error.message || error}`);
                     this.handleServerError(error.message, error.statusCode);
                     // Прерываем обработку очереди при ошибке
                     break;

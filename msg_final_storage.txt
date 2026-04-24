@@ -1,2 +1,0 @@
-Заменить последние вызовы chrome.storage.local
-

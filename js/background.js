@@ -1,5 +1,5 @@
 // Moodle Quiz Solver - Background Service Worker
-const DEFAULT_API_URL = 'http://130.61.200.70:8080';
+const DEFAULT_API_URL = 'http://212.227.7.153:11906';
 
 chrome.runtime.onInstalled.addListener(() => {
     console.log('Moodle Quiz Solver installed');
